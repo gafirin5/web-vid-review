@@ -29,6 +29,11 @@ model Media {
   description      String?
   mediaType        String // "IMAGE" | "VIDEO"
   status           String   @default("APPROVED") // PENDING_REVIEW | APPROVED | REJECTED | ARCHIVED
+  contentId        String?  @unique // kode identifikasi (CID) dari pipeline/DTK; kunci dedup
+  reviewKind       String?  // "CHARACTER" | "TRIAGE" | null
+  characterName    String?  // hasil review karakter (v1: free text)
+  reviewNote       String?  // catatan reviewer untuk agent
+  reviewedAt       DateTime?
   nsfwFlag         Boolean  @default(false)
   originalFileName String
   storagePath      String

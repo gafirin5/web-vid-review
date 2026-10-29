@@ -8,6 +8,9 @@ export const VIDEOS_DIR = path.join(UPLOADS_ROOT, "videos");
 export const IMAGES_DIR = path.join(UPLOADS_ROOT, "images");
 export const THUMBNAILS_DIR = path.join(UPLOADS_ROOT, "thumbnails");
 
+/** Folder penyimpanan dump handoff ke nextgen_cosplay_pipeline. */
+export const DUMPS_ROOT = path.join(PROJECT_ROOT, "dumps");
+
 export async function ensureUploadDirs(): Promise<void> {
   await Promise.all(
     [UPLOADS_ROOT, VIDEOS_DIR, IMAGES_DIR, THUMBNAILS_DIR].map((dir) =>

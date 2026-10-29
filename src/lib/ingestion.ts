@@ -28,6 +28,10 @@ export interface IngestInput {
   negativePrompt?: string;
   transcript?: string;
   agentId?: string | null;
+  /** Kode identifikasi (CID) dari pipeline/DTK — kunci dedup utama. */
+  contentId?: string | null;
+  /** Bila true, media masuk antrean review karakter (status PENDING_REVIEW). */
+  needsCharacterReview?: boolean;
   /** Status default untuk media baru (default APPROVED). */
   defaultStatus?: "APPROVED" | "PENDING_REVIEW";
 }
@@ -74,6 +78,7 @@ async function downloadFromUrl(
 
 export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
   await ensureUploadDirs();
+  const contentId = input.contentId?.trim() || null;
 
   // 1. Obtain the raw bytes from one of the supported sources.
   let buffer: Buffer;
@@ -125,8 +130,14 @@ export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
     throw new Error(signature.reason ?? "Isi file tidak sesuai dengan formatnya");
   }
 
-  // 3. Deduplicate via SHA-256 hash.
+  // 3. Dedup — kunci utama contentId (CID), lalu SHA-256 sebagai penjaga kedua.
   const fileHash = sha256(buffer);
+
+  if (contentId) {
+    const byCid = await db.prisma.media.findFirst({ where: { contentId } });
+    if (byCid) return { mediaId: byCid.id, duplicateOf: byCid.id };
+  }
+
   const existing = await db.prisma.media.findFirst({ where: { fileHash } });
   if (existing) {
     return { mediaId: existing.id, duplicateOf: existing.id };
@@ -205,10 +216,14 @@ export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
   const media = await db.prisma.media.create({
     data: {
       id,
+      contentId,
       title: input.title.slice(0, 300),
       description: input.description?.slice(0, 4000) ?? null,
       mediaType,
-      status: sensitive ? "PENDING_REVIEW" : (input.defaultStatus ?? "APPROVED"),
+      status: input.needsCharacterReview || sensitive
+        ? "PENDING_REVIEW"
+        : (input.defaultStatus ?? "APPROVED"),
+      reviewKind: input.needsCharacterReview ? "CHARACTER" : null,
       nsfwFlag: sensitive,
       originalFileName: fileName,
       storagePath,

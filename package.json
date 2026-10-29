@@ -11,6 +11,7 @@
     "db:generate": "prisma generate",
     "agent:create": "node scripts/create-agent.mjs",
     "backup": "node scripts/backup.mjs",
+    "dump": "tsx scripts/dump.ts",
     "mcp:bridge": "tsx scripts/mcp-bridge.ts",
     "tunnel": "node scripts/tunnel.mjs"
   },

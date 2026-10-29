@@ -28,6 +28,20 @@ export async function PATCH(
   if (typeof body?.description === "string") data.description = body.description.slice(0, 4000);
   if (typeof body?.status === "string" && STATUSES.has(body.status)) data.status = body.status;
   if (typeof body?.nsfwFlag === "boolean") data.nsfwFlag = body.nsfwFlag;
+
+  let characterName: string | undefined;
+  if (typeof body?.character_name === "string") {
+    characterName = body.character_name.trim().slice(0, 200);
+    data.characterName = characterName;
+    data.reviewedAt = new Date();
+  }
+  if (typeof body?.review_note === "string") {
+    data.reviewNote = body.review_note.trim().slice(0, 1000) || null;
+  }
+  if (typeof body?.review_kind === "string") {
+    data.reviewKind = body.review_kind.trim().slice(0, 50) || null;
+  }
+
   if (Object.keys(data).length === 0) return jsonError("Tidak ada field yang diubah");
 
   try {
@@ -38,6 +52,14 @@ export async function PATCH(
       message: `status ${media.status}`,
       payload: { mediaId: id, status: media.status },
     });
+    if (characterName !== undefined) {
+      publishEvent({
+        type: "media.review_resolved",
+        title: `Review karakter selesai: ${media.title.slice(0, 50)}`,
+        message: characterName,
+        payload: { mediaId: id, characterName },
+      });
+    }
     return jsonOk({ id: media.id, status: media.status, title: media.title });
   } catch {
     return jsonError("Media tidak ditemukan", 404);

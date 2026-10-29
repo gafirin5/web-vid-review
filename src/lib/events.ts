@@ -14,6 +14,8 @@ export interface PlatformEvent {
     | "media.uploaded"
     | "media.updated"
     | "media.deleted"
+    | "media.review_resolved"
+    | "media.dumped"
     | "review.submitted"
     | "backup.completed"
     | "compare.voted"

@@ -8,10 +8,15 @@ const mediaSchema = {
   type: "object",
   properties: {
     id: { type: "string", format: "uuid" },
+    contentId: { type: "string", nullable: true, description: "Kode identifikasi (CID) dari pipeline/DTK (kunci dedup & lookup)" },
     title: { type: "string" },
     description: { type: "string", nullable: true },
     mediaType: { type: "string", enum: ["IMAGE", "VIDEO"] },
     status: { type: "string", enum: ["PENDING_REVIEW", "APPROVED", "REJECTED", "ARCHIVED"] },
+    reviewKind: { type: "string", nullable: true, enum: ["CHARACTER", "NSFW", "QUALITY", "CUSTOM"] },
+    characterName: { type: "string", nullable: true, description: "Nama karakter game/anime yang telah divalidasi manusia" },
+    reviewNote: { type: "string", nullable: true, description: "Catatan kurator/reviewer manusia" },
+    reviewedAt: { type: "string", format: "date-time", nullable: true },
     storagePath: { type: "string" },
     thumbnailPath: { type: "string", nullable: true },
     mimeType: { type: "string" },
@@ -69,7 +74,7 @@ export async function GET() {
         "jelajahi koleksi, dan kirim review. Dokumentasi interaktif: /api/v1/docs. " +
         "Server MCP juga tersedia di /api/mcp.",
     },
-    servers: [{ url: "http://localhost:3000", description: "Server lokal" }],
+    servers: [{ url: "/", description: "Server saat ini (origin yang sama dengan dokumen ini)" }],
     components: {
       securitySchemes: {
         AgentApiKey: {
@@ -113,6 +118,28 @@ export async function GET() {
           },
         },
       },
+      "/api/v1/media/by-code/{code}": {
+        get: {
+          summary: "Cari media via kode identifikasi (CID) atau UUID",
+          description: "Dipakai oleh AI agent untuk polling hasil review karakter manusia.",
+          parameters: [
+            {
+              name: "code",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "contentId (CID) atau UUID media",
+            },
+          ],
+          responses: {
+            200: {
+              description: "Detail media dan riwayat review",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/Media" } } },
+            },
+            404: { description: "Media tidak ditemukan" },
+          },
+        },
+      },
       "/api/v1/media/upload": {
         post: {
           summary: "Upload media",
@@ -130,6 +157,8 @@ export async function GET() {
                   properties: {
                     file: { type: "string", format: "binary" },
                     title: { type: "string" },
+                    content_id: { type: "string", description: "Kode identifikasi (CID) dari pipeline/DTK (dedup)" },
+                    needs_character_review: { type: "string", enum: ["true", "false"], description: "Kirim 'true' jika ragu identitas karakter (status jadi PENDING_REVIEW)" },
                     description: { type: "string" },
                     tags: { type: "string", description: "Tag dipisah koma: '3d,render'" },
                     prompt: { type: "string" },
@@ -142,6 +171,8 @@ export async function GET() {
                   required: ["title"],
                   properties: {
                     title: { type: "string" },
+                    content_id: { type: "string", description: "Kode identifikasi (CID) dari pipeline/DTK (dedup)" },
+                    needs_character_review: { type: "boolean", description: "Kirim true jika ragu identitas karakter (status jadi PENDING_REVIEW)" },
                     source_url: { type: "string", format: "uri" },
                     source_path: { type: "string", example: "C:/videos/render.mp4" },
                     base64: { type: "string" },

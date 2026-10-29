@@ -71,6 +71,8 @@ export async function POST(request: NextRequest) {
         prompt: (form.get("prompt") as string) || undefined,
         negativePrompt: (form.get("negative_prompt") as string) || undefined,
         transcript: (form.get("transcript") as string) || undefined,
+        contentId: (form.get("content_id") as string) || undefined,
+        needsCharacterReview: form.get("needs_character_review") === "true",
         agentId,
         defaultStatus,
       });
@@ -88,6 +90,8 @@ export async function POST(request: NextRequest) {
         prompt: body.prompt,
         negativePrompt: body.negative_prompt,
         transcript: body.transcript,
+        contentId: body.content_id,
+        needsCharacterReview: body.needs_character_review === true,
         agentId,
         defaultStatus,
       });
@@ -110,6 +114,7 @@ export async function POST(request: NextRequest) {
   return jsonOk(
     {
       id: result.mediaId,
+      content_id: media?.contentId ?? null,
       duplicate: Boolean(result.duplicateOf),
       duplicate_of: result.duplicateOf,
       uploaded_by: identity.agent?.name ?? "manual",

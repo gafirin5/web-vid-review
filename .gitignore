@@ -54,3 +54,4 @@ prisma/*.db
 # media storage & backups
 /uploads
 /backups
+/dumps
