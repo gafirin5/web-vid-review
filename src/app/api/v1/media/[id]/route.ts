@@ -58,6 +58,13 @@ export async function PATCH(
   if (typeof body?.transcript === "string") data.transcript = body.transcript.slice(0, 20000);
   if (admin && typeof body?.status === "string") data.status = body.status;
   if (admin && typeof body?.nsfwFlag === "boolean") data.nsfwFlag = body.nsfwFlag;
+  if (admin && typeof body?.character_name === "string") {
+    const name = body.character_name.trim();
+    data.characterName = name.slice(0, 200);
+    data.reviewedAt = new Date();
+  }
+  if (admin && typeof body?.review_note === "string") data.reviewNote = body.review_note.trim().slice(0, 1000) || null;
+  if (admin && typeof body?.review_kind === "string") data.reviewKind = body.review_kind.trim().slice(0, 50) || null;
 
   if (Object.keys(data).length === 0 && !Array.isArray(body?.tags)) {
     return jsonError("Tidak ada field yang diubah");
@@ -76,6 +83,15 @@ export async function PATCH(
     message: admin ? "oleh admin" : `oleh ${identity.agent?.name ?? "pemilik"}`,
     payload: { mediaId: id },
   });
+
+  if (data.characterName !== undefined) {
+    publishEvent({
+      type: "media.review_resolved",
+      title: `Review karakter selesai: ${media.title.slice(0, 50)}`,
+      message: data.characterName as string,
+      payload: { mediaId: id, characterName: data.characterName },
+    });
+  }
 
   const updated = await db.prisma.media.findUnique({
     where: { id },

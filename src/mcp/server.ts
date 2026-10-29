@@ -62,6 +62,14 @@ export function buildMcpServer(): McpServer {
           .string()
           .optional()
           .describe("Agent identity (auto-created if new). Defaults to 'MCP Agent'."),
+        content_id: z
+          .string()
+          .optional()
+          .describe("Content ID (CID) from the pipeline/DTK — dedup key and lookup code"),
+        needs_character_review: z
+          .boolean()
+          .optional()
+          .describe("Set true if unsure which game character this media depicts (goes to review queue)"),
       },
     },
     async (args) => {
@@ -83,6 +91,8 @@ export function buildMcpServer(): McpServer {
           prompt: args.prompt_used,
           negativePrompt: args.negative_prompt,
           transcript: args.transcript,
+          contentId: args.content_id,
+          needsCharacterReview: args.needs_character_review === true,
           agentId: identity.id,
         });
       } catch (err: unknown) {
@@ -106,9 +116,10 @@ export function buildMcpServer(): McpServer {
             text: JSON.stringify(
               {
                 id: result.mediaId,
+                content_id: media?.contentId ?? null,
                 duplicate: Boolean(result.duplicateOf),
                 note: result.duplicateOf
-                  ? "Identical file (same SHA-256 hash) already exists in the gallery."
+                  ? "Identical content (matching content_id or SHA-256 hash) already exists in the gallery."
                   : "Upload successful.",
                 url: mediaUrl(result.mediaId),
                 media_type: media?.mediaType,
@@ -246,6 +257,53 @@ export function buildMcpServer(): McpServer {
                   comment: r.comment,
                   at_second: r.timestampSeconds,
                 })),
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "get_review_result",
+    {
+      title: "Get review result",
+      description:
+        "Look up the human review result for a media by its content_id (CID) or ID. Returns status, " +
+        "the identified game character name, and the reviewer's note. Use this after the owner has " +
+        "reviewed a media that was flagged with needs_character_review.",
+      inputSchema: {
+        code: z.string().describe("Content ID (CID) or media ID (UUID)"),
+      },
+    },
+    async (args) => {
+      const key = args.code.trim();
+      const media = await db.prisma.media.findFirst({
+        where: { OR: [{ contentId: key }, { id: key }] },
+      });
+      if (!media) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Tidak ada media dengan kode ${key}.` }],
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                id: media.id,
+                content_id: media.contentId,
+                status: media.status,
+                review_kind: media.reviewKind,
+                character_name: media.characterName,
+                review_note: media.reviewNote,
+                reviewed_at: media.reviewedAt,
+                pending: media.status === "PENDING_REVIEW",
               },
               null,
               2
