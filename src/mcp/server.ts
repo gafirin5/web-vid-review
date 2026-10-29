@@ -276,7 +276,8 @@ export function buildMcpServer(): McpServer {
       title: "Get review result",
       description:
         "Look up the human review result for a media by its content_id (CID) or ID. Returns status, " +
-        "the identified game character name, and the reviewer's note. Use this after the owner has " +
+        "the identified game character name, the reviewer's note, and — when rejected — the " +
+        "reject category (dirty_video/lowres/skit/other) plus reason. Use this after the owner has " +
         "reviewed a media that was flagged with needs_character_review.",
       inputSchema: {
         code: z.string().describe("Content ID (CID) or media ID (UUID)"),
@@ -306,6 +307,9 @@ export function buildMcpServer(): McpServer {
                 character_name: media.characterName,
                 review_note: media.reviewNote,
                 reviewed_at: media.reviewedAt,
+                reject_category: media.rejectCategory,
+                reject_reason: media.rejectReason,
+                rejected_at: media.rejectedAt,
                 pending: media.status === "PENDING_REVIEW",
               },
               null,

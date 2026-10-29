@@ -17,6 +17,19 @@ const mediaSchema = {
     characterName: { type: "string", nullable: true, description: "Nama karakter game/anime yang telah divalidasi manusia" },
     reviewNote: { type: "string", nullable: true, description: "Catatan kurator/reviewer manusia" },
     reviewedAt: { type: "string", format: "date-time", nullable: true },
+    rejectCategory: {
+      type: "string",
+      nullable: true,
+      enum: ["dirty_video", "lowres", "skit", "other"],
+      description: "Kategori karantina bila media ditolak (zero-delete)",
+    },
+    rejectReason: { type: "string", nullable: true, description: "Alasan penolakan dari kurator" },
+    rejectedAt: { type: "string", format: "date-time", nullable: true },
+    quarantinedPath: {
+      type: "string",
+      nullable: true,
+      description: "Path relatif di folder rejected/ (hanya untuk admin)",
+    },
     storagePath: { type: "string" },
     thumbnailPath: { type: "string", nullable: true },
     mimeType: { type: "string" },
@@ -121,7 +134,9 @@ export async function GET() {
       "/api/v1/media/by-code/{code}": {
         get: {
           summary: "Cari media via kode identifikasi (CID) atau UUID",
-          description: "Dipakai oleh AI agent untuk polling hasil review karakter manusia.",
+          description:
+            "Dipakai oleh AI agent untuk polling hasil review karakter manusia. Bila media ditolak, " +
+            "respons memuat rejectCategory, rejectReason, dan rejectedAt (media dipindah ke karantina).",
           parameters: [
             {
               name: "code",

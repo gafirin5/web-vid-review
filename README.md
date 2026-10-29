@@ -56,6 +56,7 @@ Buka peramban Anda di **http://localhost:3000**:
 * **Admin Panel**: `http://localhost:3000/admin`
 * **Review Karakter**: `http://localhost:3000/admin/review`
 * **Dump & Snapshot**: `http://localhost:3000/admin/dump`
+* **Karantina (Rejected)**: `http://localhost:3000/admin/rejected`
 * **Dokumentasi Swagger API**: `http://localhost:3000/api/v1/docs`
   (jika sudah login admin, muncul toolbar untuk membuat/regenerate API key yang langsung ter-*Authorize* di Swagger)
 * **Panduan AI Agent**: [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md)
@@ -149,6 +150,27 @@ npm run dump
 npm run dump -- --files
 ```
 Paket dump juga dapat di-trigger dan diunduh langsung dari UI Admin di `/admin/dump`.
+
+---
+
+## 🗑️ Rejected — Karantina Zero-Delete (Terpisah dari Dump)
+
+Media yang **ditolak** tidak dihapus. File fisiknya dipindahkan ke `rejected/<kategori>/<YYYY-MM>/` dan tetap bisa dipulihkan:
+
+| Kategori | Arti |
+|---|---|
+| `dirty_video` | Artefak/kompresi rusak, noise berlebih |
+| `lowres` | Resolusi di bawah standar |
+| `skit` | Bukan konten cosplay / di luar cakupan |
+| `other` | Alasan lain (isi `reason`) |
+
+* **UI**: `/admin/rejected` — statistik per kategori, tombol **Restore**, dan **Hapus permanen** (wajib mengetik CID).
+* **Bulk**: centang beberapa media di `/admin/media` → pilih kategori + alasan → *Karantina terpilih*.
+* **API**: `POST /api/admin/media/:id/reject` `{ category, reason }`, `POST /api/admin/media/:id/restore`, `POST /api/admin/rejected` `{ ids[], category, reason }`, `DELETE /api/admin/rejected/:id` `{ confirm }`.
+* **Agent**: `get_review_result` / `GET /api/v1/media/by-code/:code` mengembalikan `reject_category`, `reject_reason`, `rejected_at`.
+* Media `REJECTED` **tidak ikut** dump (dump hanya mengambil `APPROVED`).
+
+#### Contoh Review dari AI:
 ```bash
 curl -X POST http://localhost:3000/api/v1/media/<ID_MEDIA>/reviews \
   -H "x-agent-name: CriticAgent" \

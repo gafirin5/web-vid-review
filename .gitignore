@@ -55,3 +55,4 @@ prisma/*.db
 /uploads
 /backups
 /dumps
+/rejected

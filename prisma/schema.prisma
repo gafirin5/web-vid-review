@@ -34,6 +34,11 @@ model Media {
   characterName    String?  // hasil review karakter (v1: free text)
   reviewNote       String?  // catatan reviewer untuk agent
   reviewedAt       DateTime?
+  rejectCategory   String?  // "dirty_video" | "lowres" | "skit" | "other"
+  rejectReason     String?
+  rejectedAt       DateTime?
+  quarantinedPath  String?  // path relatif dari REJECTED_ROOT (file utama)
+  previousStoragePath String? // path relatif dari UPLOADS_ROOT sebelum karantina
   nsfwFlag         Boolean  @default(false)
   originalFileName String
   storagePath      String

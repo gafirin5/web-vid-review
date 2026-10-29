@@ -44,6 +44,10 @@ Platform ini berfungsi sebagai **Transit & Staging Hub** lokal sebelum media dip
      (5) Diambil oleh nextgen_cosplay_pipeline
 ```
 
+Cabang penolakan: bila owner menolak, media berpindah ke `rejected/<kategori>/`
+(karantina zero-delete, terpisah dari dump) dan agent melihat `status: REJECTED`
+beserta `reject_category` + `reject_reason` saat polling.
+
 ---
 
 ## 🛠️ Integrasi via MCP (Model Context Protocol)
@@ -120,6 +124,22 @@ Setelah status `PENDING_REVIEW`, admin manusia akan mengidentifikasi karakter di
   "pending": false
 }
 ```
+
+#### Respon Bila Ditolak (masuk karantina):
+```json
+{
+  "id": "cbf32890-410a-4da2-a42e-d0092c68fae1",
+  "content_id": "DTK_VIDEO_1092",
+  "status": "REJECTED",
+  "character_name": null,
+  "review_note": null,
+  "reject_category": "lowres",
+  "reject_reason": "Resolusi di bawah standar minimum",
+  "rejected_at": "2026-10-29T16:02:00.000Z",
+  "pending": false
+}
+```
+> Saat `status = REJECTED`, **jangan** kirim ulang media yang sama. File dipindahkan ke `rejected/<kategori>/` (zero-delete) dan tidak ikut dump. Kategori: `dirty_video`, `lowres`, `skit`, `other`.
 
 ---
 
