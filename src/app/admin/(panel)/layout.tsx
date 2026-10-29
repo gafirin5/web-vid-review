@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Bot, Clapperboard, DatabaseBackup, LayoutDashboard, LineChart, LogOut, Settings } from "lucide-react";
+import { Bot, Clapperboard, ClipboardList, DatabaseBackup, LayoutDashboard, LineChart, LogOut, Settings } from "lucide-react";
 import { isAdminRequest } from "@/lib/admin-auth";
 import { logoutAction } from "../actions";
 import NotificationCenter from "./NotificationCenter";
@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/review", label: "Review", icon: ClipboardList },
   { href: "/admin/media", label: "Media", icon: Clapperboard },
   { href: "/admin/agents", label: "AI Agents", icon: Bot },
   { href: "/admin/analytics", label: "Analitik", icon: LineChart },
