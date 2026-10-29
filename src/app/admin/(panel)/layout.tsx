@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Bot, Clapperboard, ClipboardList, DatabaseBackup, LayoutDashboard, LineChart, LogOut, Settings } from "lucide-react";
+import { Archive, Bot, Clapperboard, ClipboardList, DatabaseBackup, LayoutDashboard, LineChart, LogOut, Settings } from "lucide-react";
 import { isAdminRequest } from "@/lib/admin-auth";
 import { logoutAction } from "../actions";
 import NotificationCenter from "./NotificationCenter";
@@ -14,6 +14,7 @@ const navItems = [
   { href: "/admin/agents", label: "AI Agents", icon: Bot },
   { href: "/admin/analytics", label: "Analitik", icon: LineChart },
   { href: "/admin/backups", label: "Backup", icon: DatabaseBackup },
+  { href: "/admin/dump", label: "Dump", icon: Archive },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 
