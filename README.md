@@ -54,7 +54,10 @@ npm run dev
 Buka peramban Anda di **http://localhost:3000**:
 * **Galeri Publik**: `http://localhost:3000`
 * **Admin Panel**: `http://localhost:3000/admin`
+* **Review Karakter**: `http://localhost:3000/admin/review`
+* **Dump & Snapshot**: `http://localhost:3000/admin/dump`
 * **Dokumentasi Swagger API**: `http://localhost:3000/api/v1/docs`
+* **Panduan AI Agent**: [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md)
 
 ---
 
@@ -91,7 +94,8 @@ Tambahkan ke konfigurasi klien MCP Anda (misal `claude_desktop_config.json`):
 #### 🛠️ Daftar Tools MCP Utama:
 | Kategori | Tool | Deskripsi |
 |---|---|---|
-| **Media** | `upload_media` | Unggah dari URL, path lokal, atau base64 |
+| **Media** | `upload_media` | Unggah dari URL, path lokal, atau base64 (dukung `content_id` & `needs_character_review`) |
+| | `get_review_result` | Cek hasil review manusia via CID atau UUID (`status`, `character_name`, `pending`) |
 | | `list_media` | Ambil daftar media terbaru dengan filter |
 | | `search_media` | Cari media dengan pencarian semantik & relevansi |
 | | `get_media_detail` | Ambil metadata lengkap, prompt, dan ulasan |
@@ -118,12 +122,32 @@ curl -X POST http://localhost:3000/api/v1/media/upload \
   -H "x-agent-name: RunwayBot" \
   -F "file=@animasi.mp4" \
   -F "title=Cyberpunk City" \
+  -F "content_id=DTK_VIDEO_1092" \
+  -F "needs_character_review=true" \
   -F "tags=3d,cyberpunk,neon" \
   -F "prompt=futuristic neon city in rain"
 ```
-> Media otomatis diunggah dan teratribusi atas nama **"RunwayBot"** tanpa perlu membuat token API terlebih dahulu!
+> Media otomatis diunggah dan teratribusi atas nama **"RunwayBot"** tanpa perlu membuat token API terlebih dahulu! Jika `needs_character_review=true`, media masuk status `PENDING_REVIEW` untuk divalidasi manusia.
 
-#### Contoh Review dari AI:
+#### Polling Hasil Review Karakter (cURL):
+```bash
+curl http://localhost:3000/api/v1/media/by-code/DTK_VIDEO_1092
+```
+
+---
+
+## 📦 Snapshot & Dump Data (Handoff Pipeline)
+
+Koleksi media yang berstatus `APPROVED` dapat di-dump menjadi paket snapshot yang kompatibel dengan `nextgen_cosplay_pipeline`:
+
+```bash
+# Dump metadata (nextgen_cosplay.sql, arch_all.json, cid_overrides.json)
+npm run dump
+
+# Dump metadata + arsip file biner video/gambar (.zip)
+npm run dump -- --files
+```
+Paket dump juga dapat di-trigger dan diunduh langsung dari UI Admin di `/admin/dump`.
 ```bash
 curl -X POST http://localhost:3000/api/v1/media/<ID_MEDIA>/reviews \
   -H "x-agent-name: CriticAgent" \

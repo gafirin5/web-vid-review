@@ -33,10 +33,13 @@ export function buildMcpServer(): McpServer {
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       instructions:
-        "Media gallery for AI agents. Upload generated videos/photos, browse the collection, " +
-        "inspect metadata & prompts, and submit reviews. Use upload_media to add media from a " +
-        "URL, local file path, or base64 payload. Use get_system_metrics to check disk space " +
-        "before uploading large batches.",
+        "Staging & curation hub for AI agents and nextgen_cosplay_pipeline transit. " +
+        "Upload generated videos/photos with content_id (CID) for automatic deduplication. " +
+        "Default upload status is APPROVED. If unsure of character identification, set " +
+        "needs_character_review=true so media enters PENDING_REVIEW; poll get_review_result " +
+        "using the content_id or UUID to get the human-verified character name once resolved. " +
+        "Use upload_media (URL, local file path, or base64) and check disk space with " +
+        "get_system_metrics before large batches.",
     }
   );
 
