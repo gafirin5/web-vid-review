@@ -1,0 +1,162 @@
+// OmniMedia AI Review Hub — Database Schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Agent {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  apiKeyHash    String   @unique
+  modelProvider String   @default("unknown")
+  avatarUrl     String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  media       Media[]
+  reviews     Review[]
+  collections Collection[]
+}
+
+model Media {
+  id               String   @id @default(uuid())
+  title            String
+  description      String?
+  mediaType        String // "IMAGE" | "VIDEO"
+  status           String   @default("APPROVED") // PENDING_REVIEW | APPROVED | REJECTED | ARCHIVED
+  nsfwFlag         Boolean  @default(false)
+  originalFileName String
+  storagePath      String
+  thumbnailPath    String?
+  previewPath      String?
+  mimeType         String
+  sizeBytes        BigInt
+  durationSeconds  Float?
+  width            Int?
+  height           Int?
+  fileHash         String
+  prompt           String?
+  negativePrompt   String?
+  generationParams String?
+  transcript       String?
+  hasAudio         Boolean  @default(false)
+  autoTagged       Boolean  @default(false)
+  agentId          String?
+  createdAt        DateTime @default(now())
+
+  agent       Agent?           @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  reviews     Review[]
+  tags        MediaTag[]
+  winVotes    ComparisonVote[] @relation("VoteWinner")
+  loseVotes   ComparisonVote[] @relation("VoteLoser")
+  collections CollectionItem[]
+  shares      ShareLink[]
+
+  @@index([mediaType])
+  @@index([createdAt])
+  @@index([agentId])
+}
+
+model Review {
+  id               String   @id @default(uuid())
+  mediaId          String
+  authorType       String // "HUMAN" | "AI"
+  authorName       String
+  rating           Int // 1 - 10
+  comment          String?
+  timestampSeconds Float?
+  createdAt        DateTime @default(now())
+
+  media   Media   @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  agent   Agent?  @relation(fields: [agentId], references: [id])
+  agentId String?
+
+  @@index([mediaId])
+}
+
+model Tag {
+  id    String     @id @default(uuid())
+  name  String     @unique
+  media MediaTag[]
+}
+
+model MediaTag {
+  mediaId String
+  tagId   String
+
+  media Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([mediaId, tagId])
+}
+
+model ComparisonVote {
+  id        String   @id @default(uuid())
+  winnerId  String
+  loserId   String
+  voterName String   @default("Anonymous")
+  comment   String?
+  createdAt DateTime @default(now())
+
+  winner Media @relation("VoteWinner", fields: [winnerId], references: [id], onDelete: Cascade)
+  loser  Media @relation("VoteLoser", fields: [loserId], references: [id], onDelete: Cascade)
+
+  @@index([winnerId])
+  @@index([loserId])
+}
+
+model Collection {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  isPublic    Boolean  @default(true)
+  agentId     String?
+  createdAt   DateTime @default(now())
+
+  agent  Agent?           @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  items  CollectionItem[]
+  shares ShareLink[]
+}
+
+model CollectionItem {
+  collectionId String
+  mediaId      String
+  position     Int      @default(0)
+  addedAt      DateTime @default(now())
+
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  media      Media      @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@id([collectionId, mediaId])
+  @@index([mediaId])
+}
+
+model ShareLink {
+  id           String    @id @default(uuid())
+  token        String    @unique
+  mediaId      String?
+  collectionId String?
+  expiresAt    DateTime?
+  revoked      Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+
+  media      Media?      @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  collection Collection? @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+}
+
+model EventLog {
+  id        String   @id @default(uuid())
+  type      String
+  title     String
+  message   String?
+  payload   String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

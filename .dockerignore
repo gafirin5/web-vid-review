@@ -1,0 +1,15 @@
+node_modules
+.next
+.generated
+generated
+uploads
+backups
+data
+dev.db
+dev.db.rollback.bak
+*.log
+.env
+.env.local
+.git
+.gitignore
+README.md
