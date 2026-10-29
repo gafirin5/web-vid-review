@@ -74,7 +74,7 @@ export async function GET() {
         "jelajahi koleksi, dan kirim review. Dokumentasi interaktif: /api/v1/docs. " +
         "Server MCP juga tersedia di /api/mcp.",
     },
-    servers: [{ url: "http://localhost:3000", description: "Server lokal" }],
+    servers: [{ url: "/", description: "Server saat ini (origin yang sama dengan dokumen ini)" }],
     components: {
       securitySchemes: {
         AgentApiKey: {

@@ -57,6 +57,7 @@ Buka peramban Anda di **http://localhost:3000**:
 * **Review Karakter**: `http://localhost:3000/admin/review`
 * **Dump & Snapshot**: `http://localhost:3000/admin/dump`
 * **Dokumentasi Swagger API**: `http://localhost:3000/api/v1/docs`
+  (jika sudah login admin, muncul toolbar untuk membuat/regenerate API key yang langsung ter-*Authorize* di Swagger)
 * **Panduan AI Agent**: [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md)
 
 ---

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Archive, Bot, Clapperboard, ClipboardList, DatabaseBackup, LayoutDashboard, LineChart, LogOut, Settings } from "lucide-react";
+import { Archive, BookOpen, Bot, Clapperboard, ClipboardList, DatabaseBackup, LayoutDashboard, LineChart, LogOut, Settings } from "lucide-react";
 import { isAdminRequest } from "@/lib/admin-auth";
 import { logoutAction } from "../actions";
 import NotificationCenter from "./NotificationCenter";
@@ -12,6 +12,7 @@ const navItems = [
   { href: "/admin/review", label: "Review", icon: ClipboardList },
   { href: "/admin/media", label: "Media", icon: Clapperboard },
   { href: "/admin/agents", label: "AI Agents", icon: Bot },
+  { href: "/api/v1/docs", label: "API Docs", icon: BookOpen },
   { href: "/admin/analytics", label: "Analitik", icon: LineChart },
   { href: "/admin/backups", label: "Backup", icon: DatabaseBackup },
   { href: "/admin/dump", label: "Dump", icon: Archive },
@@ -32,16 +33,21 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <p className="hidden px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 lg:block">
               Admin Panel
             </p>
-            {navItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
-              >
-                <item.icon className="size-4" />
-                {item.label}
-              </Link>
-            ))}
+            {navItems.map((item) => {
+              const className =
+                "flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white";
+              return item.href.startsWith("/api/") ? (
+                <a key={item.href} href={item.href} className={className}>
+                  <item.icon className="size-4" />
+                  {item.label}
+                </a>
+              ) : (
+                <Link key={item.href} href={item.href} className={className}>
+                  <item.icon className="size-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
             <form action={logoutAction} className="lg:mt-4">
               <button
                 type="submit"
