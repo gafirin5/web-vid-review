@@ -5,18 +5,29 @@
 
 export type AuthMode = "open" | "optional" | "required";
 
+/** Demo anonim harus opt-in eksplisit — default produksi = keyed. */
+export function anonymousDemoEnabled(): boolean {
+  return process.env.ALLOW_ANONYMOUS_DEMO === "true";
+}
+
 function authMode(): AuthMode {
-  const v = (process.env.AUTH_MODE ?? "open").toLowerCase();
+  const v = (process.env.AUTH_MODE ?? "").trim().toLowerCase();
   if (v === "required" || v === "optional" || v === "open") return v;
-  return "open";
+  // Tanpa AUTH_MODE eksplisit: keyed secara default. Mode terbuka hanya
+  // untuk demo lokal dengan ALLOW_ANONYMOUS_DEMO=true.
+  return anonymousDemoEnabled() ? "open" : "required";
 }
 
 export const APP_CONFIG = {
   /** open: tanpa key tetap diterima (identitas dari x-agent-name)
    *  optional: tanpa key = anonim tanpa atribusi agent
-   *  required: wajib API key */
+   *  required: wajib API key (default) */
   get authMode(): AuthMode {
     return authMode();
+  },
+  /** true bila akses anonim sengaja diaktifkan untuk demo. */
+  get anonymousDemo(): boolean {
+    return anonymousDemoEnabled();
   },
   /** Status media untuk upload anonim (open mode). */
   get anonStatus(): "APPROVED" | "PENDING_REVIEW" {

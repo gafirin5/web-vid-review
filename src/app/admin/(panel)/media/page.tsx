@@ -43,6 +43,8 @@ export default async function AdminMediaPage({ searchParams }: MediaAdminPagePro
     id: m.id,
     title: m.title,
     contentId: m.contentId,
+    role: m.role,
+    index: m.index,
     mediaType: m.mediaType,
     status: m.status,
     sizeBytes: m.sizeBytes.toString(),

@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { requireAdminApi } from "@/lib/admin-auth";
 import { jsonError, jsonOk } from "@/lib/http";
 import { isRejectCategory, quarantineMedia } from "@/services/quarantine";
+import { REJECT_CATEGORIES } from "@/lib/reject-categories";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export async function POST(
   const body = await request.json().catch(() => ({}));
   if (!isRejectCategory(body?.category)) {
     return jsonError(
-      "'category' wajib salah satu: dirty_video, lowres, skit, other",
+      `'category' wajib salah satu: ${REJECT_CATEGORIES.join(", ")}`,
       422
     );
   }

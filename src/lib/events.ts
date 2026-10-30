@@ -19,6 +19,7 @@ export interface PlatformEvent {
     | "media.rejected"
     | "media.restored"
     | "media.purged"
+    | "media.archived"
     | "remote.synced"
     | "review.submitted"
     | "backup.completed"

@@ -5,6 +5,7 @@ import { REJECTED_ROOT, resolveStoredPath } from "@/lib/paths";
 import { publishEvent } from "@/lib/events";
 import {
   REJECT_CATEGORIES,
+  REJECT_CATEGORY_DIRS,
   isRejectCategory,
   type RejectCategory,
 } from "@/lib/reject-categories";
@@ -142,8 +143,13 @@ export async function quarantineMedia(
   const category = opts.category;
   const reason = opts.reason?.trim().slice(0, 1000) || null;
   const bucket = monthBucket(rejectedAt);
-  const key = safeName(media.contentId?.trim() || media.id);
-  const dirRel = path.join(category, bucket);
+  const baseKey = safeName(media.contentId?.trim() || media.id);
+  // Multi-aset per CID: role/index masuk nama file agar tidak saling menimpa.
+  const key =
+    media.role === "video" && media.index === 0
+      ? baseKey
+      : `${baseKey}__${safeName(media.role)}${media.index ? `_${media.index}` : ""}`;
+  const dirRel = path.join(REJECT_CATEGORY_DIRS[category], bucket);
 
   const mainExt = path.extname(media.storagePath) || path.extname(media.originalFileName) || "";
   const files: QuarantineFile[] = [
@@ -289,7 +295,7 @@ export async function restoreMedia(mediaId: string): Promise<QuarantineResult> {
   return {
     id: media.id,
     contentId: media.contentId,
-    category: (media.rejectCategory as RejectCategory) ?? "other",
+    category: (media.rejectCategory as RejectCategory) ?? "NON_COSPLAY",
     reason: media.rejectReason,
     rejectedAt: (media.rejectedAt ?? new Date()).toISOString(),
     quarantinedPath: media.quarantinedPath,
@@ -316,7 +322,7 @@ export async function listQuarantined(): Promise<{
   let totalSize = 0;
 
   for (const row of rows) {
-    const category = isRejectCategory(row.rejectCategory) ? row.rejectCategory : "other";
+    const category = isRejectCategory(row.rejectCategory) ? row.rejectCategory : "NON_COSPLAY";
     const sizeBytes = Number(row.sizeBytes);
     items.push({
       id: row.id,

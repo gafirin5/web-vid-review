@@ -26,7 +26,7 @@ export default function MediaActions({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [showReject, setShowReject] = useState(false);
-  const [category, setCategory] = useState<RejectCategory>("other");
+  const [category, setCategory] = useState<RejectCategory>("NON_COSPLAY");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
 

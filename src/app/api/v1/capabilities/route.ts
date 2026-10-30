@@ -8,6 +8,10 @@ export const dynamic = "force-dynamic";
 
 const MCP_TOOLS = [
   "upload_media",
+  "upload_bundle",
+  "get_bundle",
+  "check_cid",
+  "storage_report",
   "list_media",
   "search_media",
   "get_media_detail",
@@ -66,11 +70,15 @@ export async function GET() {
     media: {
       images: ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp"],
       videos: ["mp4", "webm", "mov", "mkv", "avi", "m4v", "ogv"],
+      roles: ["video", "cover", "frame", "pin", "thumb"],
       features: [
         "thumbnail otomatis",
         "deteksi durasi/resolusi/audio",
         "auto-tagging heuristik",
-        "deduplikasi SHA-256",
+        "deduplikasi CID-first (content_id + role + index)",
+        "fallback deduplikasi SHA-256 tanpa CID",
+        "bundle multi-aset per CID",
+        "retensi per role + laporan penyimpanan",
         "transkrip teks",
         "pencarian relevansi",
       ],

@@ -7,6 +7,7 @@ import {
   quarantineMedia,
   type RejectCategory,
 } from "@/services/quarantine";
+import { REJECT_CATEGORIES } from "@/lib/reject-categories";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
     : [];
   if (ids.length === 0) return jsonError("'ids' wajib berisi minimal 1 media id", 422);
   if (!isRejectCategory(body?.category)) {
-    return jsonError("'category' wajib salah satu: dirty_video, lowres, skit, other", 422);
+    return jsonError(`'category' wajib salah satu: ${REJECT_CATEGORIES.join(", ")}`, 422);
   }
   const category = body.category as RejectCategory;
   const reason = typeof body?.reason === "string" ? body.reason : null;

@@ -15,6 +15,8 @@ export interface AdminMediaRow {
   id: string;
   title: string;
   contentId: string | null;
+  role: string;
+  index: number;
   mediaType: string;
   status: string;
   sizeBytes: string;
@@ -40,7 +42,7 @@ function formatBytes(n: number): string {
 export default function MediaTable({ rows }: { rows: AdminMediaRow[] }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [category, setCategory] = useState<RejectCategory>("other");
+  const [category, setCategory] = useState<RejectCategory>("NON_COSPLAY");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -198,7 +200,21 @@ export default function MediaTable({ rows }: { rows: AdminMediaRow[] }) {
                   </div>
                 </td>
                 <td className="px-4 py-2.5 text-zinc-400">
-                  {m.mediaType === "VIDEO" ? "Video" : "Foto"}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span>{m.mediaType === "VIDEO" ? "Video" : "Foto"}</span>
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                        m.role === "video"
+                          ? "bg-violet-500/15 text-violet-300"
+                          : m.role === "cover"
+                            ? "bg-sky-500/15 text-sky-300"
+                            : "bg-zinc-700/60 text-zinc-300"
+                      }`}
+                    >
+                      {m.role}
+                      {m.index > 0 ? ` ${m.index}` : ""}
+                    </span>
+                  </div>
                 </td>
                 <td className="px-4 py-2.5 text-zinc-400">
                   {m.agentName ? `🤖 ${m.agentName}` : "—"}

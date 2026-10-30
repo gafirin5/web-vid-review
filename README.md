@@ -12,13 +12,15 @@
 
 ## 🌟 Sorotan Fitur
 
-* 🔓 **Akses Frictionless (Mode Tanpa Auth)**: AI agent bisa langsung terhubung dan mengunggah konten hanya dengan header `x-agent-name` tanpa perlu repot mendaftar API key terlebih dahulu.
-* 🤖 **MCP Server Lengkap (24 Tools + 5 Resources + 3 Prompts)**: Kompatibel dengan Claude Desktop, Cursor, dan klien MCP modern lainnya (tersedia via HTTP Streaming & Stdio subprocess).
+* 🔐 **Auth Keyed by Default**: `AUTH_MODE=required` — agent wajib memakai API key `avr_...` (buat di `/admin/agents`). Mode anonim hanya untuk demo eksplisit (`ALLOW_ANONYMOUS_DEMO=true`).
+* 🧩 **Bundle Multi-Aset per CID**: Satu `content_id` dapat berisi `video`, `cover`, `frame`, `pin`, `thumb`; intake idempoten per `(content_id, role, index)`.
+* 🤖 **MCP Server Lengkap (28 Tools + 5 Resources + 3 Prompts)**: Kompatibel dengan Claude Desktop, Cursor, dan klien MCP modern lainnya (tersedia via HTTP Streaming & Stdio subprocess).
 * ⚡ **Realtime Event Stream (SSE)**: Galeri publik dan dashboard admin ter-refresh otomatis secara langsung saat ada unggahan atau ulasan baru.
 * ⚖️ **A/B Comparison (Head-to-Head)**: Slider foto split-screen interaktif dan sinkronisasi playback video berdampingan untuk menguji kualitas model/prompt AI.
 * 🧠 **Smart Media Intelligence**: Auto-tagging warna dominan, orientasi, kecerahan, keyword prompt otomatis, serta penyaring konten sensitif.
 * 📁 **Album & Share Links**: Buat koleksi dan bagikan via link publik read-only dengan opsi masa berlaku kedaluwarsa.
 * 💾 **Backup & Disaster Recovery**: Snapshot metadata ringan atau arsip ZIP penuh media dengan fitur pemulihan otomatis (rollback).
+* 🧹 **Retensi & Laporan Storage**: TTL per role, purge file dengan metadata tetap `ARCHIVED` (zero-delete), laporan disk di `/admin/storage`.
 * ☁️ **Siap Online**: Konfigurasi bawaan untuk Cloudflare Tunnel (HTTPS instan gratis) & Docker Compose.
 
 ---
@@ -56,6 +58,7 @@ Buka peramban Anda di **http://localhost:3000**:
 * **Admin Panel**: `http://localhost:3000/admin`
 * **Review Karakter**: `http://localhost:3000/admin/review`
 * **Dump & Snapshot**: `http://localhost:3000/admin/dump`
+* **Penyimpanan & Retensi**: `http://localhost:3000/admin/storage`
 * **Karantina (Rejected)**: `http://localhost:3000/admin/rejected`
 * **Dokumentasi Swagger API**: `http://localhost:3000/api/v1/docs`
   (jika sudah login admin, muncul toolbar untuk membuat/regenerate API key yang langsung ter-*Authorize* di Swagger)
@@ -74,11 +77,13 @@ Tambahkan ke konfigurasi klien MCP Anda (misal `claude_desktop_config.json`):
 {
   "mcpServers": {
     "media-gallery": {
-      "url": "http://localhost:3000/api/mcp"
+      "url": "http://localhost:3000/api/mcp",
+      "headers": { "Authorization": "Bearer avr_xxx" }
     }
   }
 }
 ```
+> Endpoint HTTP MCP ikut aturan `AUTH_MODE` (default `required`). Buat API key di `/admin/agents`.
 
 #### Opsi B — Stdio Subprocess (Lokal Native)
 ```json
@@ -96,32 +101,36 @@ Tambahkan ke konfigurasi klien MCP Anda (misal `claude_desktop_config.json`):
 #### 🛠️ Daftar Tools MCP Utama:
 | Kategori | Tool | Deskripsi |
 |---|---|---|
-| **Media** | `upload_media` | Unggah dari URL, path lokal, atau base64 (dukung `content_id` & `needs_character_review`) |
+| **Media** | `upload_media` | Unggah dari URL, path lokal, atau base64 (dukung `content_id`, `role`, `index`, `needs_character_review`) |
+| | `upload_bundle` | Unggah satu CID berisi video + cover + frames/pins dalam satu panggilan (idempoten) |
+| | `get_bundle` | Ambil seluruh aset satu CID, dikelompokkan per role |
+| | `check_cid` | Cek CID lebih dulu (CID-first dedup) sebelum upload |
 | | `get_review_result` | Cek hasil review manusia via CID atau UUID (`status`, `character_name`, `pending`) |
 | | `list_media` | Ambil daftar media terbaru dengan filter |
 | | `search_media` | Cari media dengan pencarian semantik & relevansi |
 | | `get_media_detail` | Ambil metadata lengkap, prompt, dan ulasan |
 | | `update_media` / `delete_media` | Edit atau hapus media milik agent sendiri |
 | | `bulk_upload` | Unggah hingga 20 media dalam satu pemanggilan |
-| | `check_duplicate` | Cek hash SHA-256 sebelum mengunggah |
+| | `check_duplicate` | Cek hash SHA-256 (fallback bila aset tidak punya CID) |
 | **Koleksi** | `create_collection` | Buat album koleksi tematik |
 | | `add_to_collection` | Tambahkan media ke dalam album |
 | **Ulasan & Banding** | `submit_review` / `bulk_review` | Berikan rating 1-10 + komentar timestamp video |
 | | `compare_media` | Statistik perbandingan head-to-head A/B |
 | | `create_share_link` | Buat link berbagi publik read-only |
 | **Sistem** | `get_system_metrics` | Cek kapasitas disk dan statistik konten |
+| | `storage_report` | Laporan storage per role/status, purgeable, proyeksi 30 hari |
 | | `create_system_backup` | Memicu backup otomatis sistem |
 
 ---
 
-### 2. REST API (Bisa Tanpa Auth)
+### 2. REST API (API Key)
 
-Dokumentasi interaktif Swagger UI tersedia di `/api/v1/docs`.
+Dokumentasi interaktif Swagger UI tersedia di `/api/v1/docs`. Default `AUTH_MODE=required`, jadi sertakan `Authorization: Bearer avr_...`.
 
 #### Contoh Unggah Langsung (cURL 1-Baris):
 ```bash
 curl -X POST http://localhost:3000/api/v1/media/upload \
-  -H "x-agent-name: RunwayBot" \
+  -H "Authorization: Bearer avr_xxx" \
   -F "file=@animasi.mp4" \
   -F "title=Cyberpunk City" \
   -F "content_id=DTK_VIDEO_1092" \
@@ -129,12 +138,24 @@ curl -X POST http://localhost:3000/api/v1/media/upload \
   -F "tags=3d,cyberpunk,neon" \
   -F "prompt=futuristic neon city in rain"
 ```
-> Media otomatis diunggah dan teratribusi atas nama **"RunwayBot"** tanpa perlu membuat token API terlebih dahulu! Jika `needs_character_review=true`, media masuk status `PENDING_REVIEW` untuk divalidasi manusia.
+> Jika `needs_character_review=true`, media masuk status `PENDING_REVIEW` untuk divalidasi manusia.
+
+#### Upload Bundle (video + cover + frames, idempoten per CID/role/index):
+```bash
+curl -X POST http://localhost:3000/api/v1/bundles \
+  -H "Authorization: Bearer avr_xxx" \
+  -F 'manifest={"content_id":"DTK_VIDEO_1092","title":"Cyberpunk City","character":"Raiden Shogun","game":"Genshin Impact"}' \
+  -F "video=@animasi.mp4" \
+  -F "cover=@cover.jpg" \
+  -F "frames=@frame_1.jpg" \
+  -F "frames=@frame_2.jpg"
+```
 
 #### Polling Hasil Review Karakter (cURL):
 ```bash
 curl http://localhost:3000/api/v1/media/by-code/DTK_VIDEO_1092
 ```
+> CID dengan banyak aset mengembalikan objek `{ content_id, count, roles: { video, cover, frames, pins, thumbs }, items }`. Gunakan `?role=frame&index=2` untuk presisi.
 
 ---
 
@@ -149,7 +170,27 @@ npm run dump
 # Dump metadata + arsip file biner video/gambar (.zip)
 npm run dump -- --files
 ```
-Paket dump juga dapat di-trigger dan diunduh langsung dari UI Admin di `/admin/dump`.
+Paket dump juga dapat di-trigger dan diunduh langsung dari UI Admin di `/admin/dump`. SQL berisi **satu baris per CID** (video sebagai primary), sedangkan `arch_all.json` memuat `assets[]` untuk seluruh role/index.
+
+---
+
+## 🧹 Retensi & Laporan Penyimpanan
+
+Storage lokal adalah sumber utama. File dihapus setelah TTL, tetapi record tetap ada sebagai `ARCHIVED` (zero-delete).
+
+| Role | TTL default |
+|---|---|
+| `video` | 180 hari |
+| `cover` | 90 hari |
+| `frame` | 14 hari |
+| `pin` | 30 hari |
+| `thumb` | 90 hari |
+| `rejected` | 90 hari |
+
+* **UI**: `/admin/storage` — laporan disk, edit TTL, dry-run & purge.
+* **API**: `GET /api/v1/storage/report`, `GET/POST /api/v1/retention/policies`, `POST /api/v1/retention/run?dry_run=true|false`.
+* **CLI**: `npm run retention:run` (dry-run) / `npm run retention:run -- --apply`.
+* **Karakter/game autocomplete**: `npm run characters:import -- --db /path/nextgen_cosplay.db` (atau `--json`), lalu `GET /api/v1/characters?q=`. Sumber data adalah database lokal, bukan panggilan LLM.
 
 ---
 
@@ -159,10 +200,14 @@ Media yang **ditolak** tidak dihapus. File fisiknya dipindahkan ke `rejected/<ka
 
 | Kategori | Arti |
 |---|---|
-| `dirty_video` | Artefak/kompresi rusak, noise berlebih |
-| `lowres` | Resolusi di bawah standar |
-| `skit` | Bukan konten cosplay / di luar cakupan |
-| `other` | Alasan lain (isi `reason`) |
+| `DIRTY_TEXT` | Ada teks kotor/subtitle yang tidak diinginkan |
+| `SKIT` | Video skit/bercerita, bukan showcase cosplay |
+| `SPONSOR` | Mengandung sponsor/iklan |
+| `NON_COSPLAY` | Bukan konten cosplay / di luar cakupan |
+| `LOWRES` | Resolusi di bawah standar |
+| `DUPLICATE` | Duplikat konten lain |
+
+> `MODESTY_OK` **bukan** alasan penolakan. Folder karantina memakai slug lowercase (`dirty_text`, `skit`, `sponsor`, `non_cosplay`, `lowres`, `duplicate`), sedangkan database menyimpan enum uppercase.
 
 * **UI**: `/admin/rejected` — statistik per kategori, tombol **Restore**, dan **Hapus permanen** (wajib mengetik CID).
 * **Bulk**: centang beberapa media di `/admin/media` → pilih kategori + alasan → *Karantina terpilih*.

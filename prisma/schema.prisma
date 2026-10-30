@@ -29,12 +29,28 @@ model Media {
   description      String?
   mediaType        String // "IMAGE" | "VIDEO"
   status           String   @default("APPROVED") // PENDING_REVIEW | APPROVED | REJECTED | ARCHIVED
-  contentId        String?  @unique // kode identifikasi (CID) dari pipeline/DTK; kunci dedup
+  contentId        String?  // kode identifikasi (CID) dari pipeline/DTK; unik per (CID, role, index)
+  role             String   @default("video") // video|cover|frame|pin|thumb
+  index            Int      @default(0) // urutan frame/pin; 0 untuk video/cover
+  characterCandidates String? // JSON array saran karakter
+  game             String?
+  creatorName      String?
+  creatorSecUid    String?
+  sourceUrl        String?
+  sourcePlatform   String? // douyin|tiktok
+  playlistId       String?
+  pinterestBoard   String?
+  visionVerdict    String? // PASS_CLEAN|PASS_REPLACE_COVER|REJECT_DIRTY_VIDEO
+  pipelineStage    String   @default("intake") // intake|gated|scheduled|published|archived
+  externalRefs     String? // JSON { youtubeVideoId, zernioPostId, ... }
+  publishedAt      DateTime?
+  purgeAt          DateTime?
+  phash            String?
   reviewKind       String?  // "CHARACTER" | "TRIAGE" | null
   characterName    String?  // hasil review karakter (v1: free text)
   reviewNote       String?  // catatan reviewer untuk agent
   reviewedAt       DateTime?
-  rejectCategory   String?  // "dirty_video" | "lowres" | "skit" | "other"
+  rejectCategory   String?  // DIRTY_TEXT|SKIT|SPONSOR|NON_COSPLAY|LOWRES|DUPLICATE
   rejectReason     String?
   rejectedAt       DateTime?
   quarantinedPath  String?  // path relatif dari REJECTED_ROOT (file utama)
@@ -66,7 +82,15 @@ model Media {
   loseVotes   ComparisonVote[] @relation("VoteLoser")
   collections CollectionItem[]
   shares      ShareLink[]
+  audits      MediaAudit[]
 
+  @@unique([contentId, role, index])
+  @@index([contentId])
+  @@index([role])
+  @@index([game])
+  @@index([characterName])
+  @@index([pipelineStage])
+  @@index([purgeAt])
   @@index([mediaType])
   @@index([createdAt])
   @@index([agentId])
@@ -168,5 +192,48 @@ model EventLog {
   payload   String?
   createdAt DateTime @default(now())
 
+  @@index([createdAt])
+}
+
+model Character {
+  id        String   @id @default(uuid())
+  name      String
+  game      String?
+  aliases   String? // JSON array
+  createdAt DateTime @default(now())
+
+  @@unique([name, game])
+  @@index([name])
+  @@index([game])
+}
+
+model Game {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+}
+
+model RetentionPolicy {
+  role          String   @id
+  retentionDays Int
+  updatedAt     DateTime @updatedAt
+}
+
+model MediaAudit {
+  id         String   @id @default(uuid())
+  mediaId    String
+  action     String // created|status_changed|rejected|restored|resolved|archived|purged
+  fromStatus String?
+  toStatus   String?
+  actorType  String // HUMAN|AGENT|SYSTEM
+  actorName  String?
+  agentId    String?
+  reasonCode String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  media Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@index([mediaId])
   @@index([createdAt])
 }

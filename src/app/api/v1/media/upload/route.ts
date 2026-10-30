@@ -15,8 +15,8 @@ export const maxDuration = 300;
  *  2. application/json: { source_url | source_path | base64, file_name, title, ... }
  *
  * Autentikasi:
- *  - AUTH_MODE=open (default): tanpa key pun bisa; identitas agent dari header `x-agent-name`.
- *  - Dengan API key: agent terautentikasi penuh.
+ *  - AUTH_MODE=required (default): wajib API key agent.
+ *  - AUTH_MODE=open/optional atau ALLOW_ANONYMOUS_DEMO=true: akses anonim/demo.
  */
 export async function POST(request: NextRequest) {
   // Rate limit dasar per IP (semua pemanggil).
@@ -72,6 +72,13 @@ export async function POST(request: NextRequest) {
         negativePrompt: (form.get("negative_prompt") as string) || undefined,
         transcript: (form.get("transcript") as string) || undefined,
         contentId: (form.get("content_id") as string) || undefined,
+        role: (form.get("role") as string) || undefined,
+        index: form.get("index") ? Number(form.get("index")) : undefined,
+        characterName: (form.get("character") as string) || undefined,
+        game: (form.get("game") as string) || undefined,
+        creatorName: (form.get("creator_name") as string) || undefined,
+        creatorSecUid: (form.get("creator_sec_uid") as string) || undefined,
+        sourcePlatform: (form.get("source_platform") as string) || undefined,
         needsCharacterReview: form.get("needs_character_review") === "true",
         agentId,
         defaultStatus,
@@ -91,6 +98,16 @@ export async function POST(request: NextRequest) {
         negativePrompt: body.negative_prompt,
         transcript: body.transcript,
         contentId: body.content_id,
+        role: body.role,
+        index: body.index,
+        characterName: body.character,
+        characterCandidates: Array.isArray(body.character_candidates)
+          ? body.character_candidates
+          : undefined,
+        game: body.game,
+        creatorName: body.creator_name,
+        creatorSecUid: body.creator_sec_uid,
+        sourcePlatform: body.source_platform,
         needsCharacterReview: body.needs_character_review === true,
         agentId,
         defaultStatus,
@@ -115,6 +132,9 @@ export async function POST(request: NextRequest) {
     {
       id: result.mediaId,
       content_id: media?.contentId ?? null,
+      role: result.role,
+      index: result.index,
+      status: result.status,
       duplicate: Boolean(result.duplicateOf),
       duplicate_of: result.duplicateOf,
       uploaded_by: identity.agent?.name ?? "manual",

@@ -37,10 +37,25 @@ export interface DumpInfo {
   includeFiles: boolean;
 }
 
-/** Baris tunggal media APPROVED yang dipetakan ke artefak pipeline. */
+/** Satu aset fisik dalam bundle CID. */
+interface DumpAsset {
+  role: string;
+  index: number;
+  wvr_id: string;
+  media_type: "IMAGE" | "VIDEO";
+  title: string;
+  width: number | null;
+  height: number | null;
+  duration_ms: number | null;
+  storagePath: string;
+  thumbnailPath: string | null;
+  ext: string;
+}
+
+/** Satu CID (baris `contents`) beserta seluruh asetnya. */
 interface DumpItem {
   content_id: string; // contentId ?? id (fallback UUID)
-  wvr_id: string; // id media featherduster
+  wvr_id: string; // id media primary featherduster
   douyin_url: string | null;
   title: string;
   description: string | null;
@@ -57,6 +72,8 @@ interface DumpItem {
   storagePath: string;
   thumbnailPath: string | null;
   ext: string;
+  /** video (primary) + cover + frame/pin/thumb — untuk arch_all & salinan file. */
+  assets: DumpAsset[];
 }
 
 export function dumpDirName(date = new Date()): string {
@@ -97,47 +114,90 @@ function douyinUrlFor(contentId: string | null): string | null {
   return null;
 }
 
+const PRIMARY_ROLE_ORDER = ["video", "cover", "thumb", "pin", "frame"] as const;
+
+function roleRank(role: string): number {
+  const idx = (PRIMARY_ROLE_ORDER as readonly string[]).indexOf(role);
+  return idx === -1 ? PRIMARY_ROLE_ORDER.length : idx;
+}
+
 async function collectItems(): Promise<DumpItem[]> {
   const media = await db.prisma.media.findMany({
     where: { status: "APPROVED" },
-    orderBy: { createdAt: "asc" },
+    orderBy: [{ createdAt: "asc" }, { index: "asc" }],
     include: {
       agent: { select: { name: true } },
       tags: { include: { tag: true } },
     },
   });
 
-  return media.map((m) => {
-    const content_id = m.contentId?.trim() || m.id;
+  // Kelompokkan per CID — satu baris `contents` per CID, bukan per aset.
+  const groups = new Map<string, typeof media>();
+  for (const m of media) {
+    const cid = m.contentId?.trim() || m.id;
+    const list = groups.get(cid);
+    if (list) list.push(m);
+    else groups.set(cid, [m]);
+  }
+
+  const items: DumpItem[] = [];
+  for (const [content_id, rows] of groups) {
+    // Primary: video index 0, lalu cover, lalu role lain; fallback baris pertama.
+    const primary =
+      [...rows].sort((a, b) => {
+        const byRole = roleRank(a.role) - roleRank(b.role);
+        return byRole !== 0 ? byRole : a.index - b.index;
+      })[0] ?? rows[0];
+
+    // Nama karakter/game bisa saja hanya terisi pada aset tertentu.
+    const characterRow = rows.find((m) => m.characterName) ?? primary;
     let character_en: string | null = null;
     let game: string | null = null;
-    if (m.characterName) {
-      const parsed = parseCharacterName(m.characterName);
+    if (characterRow.characterName) {
+      const parsed = parseCharacterName(characterRow.characterName);
       character_en = parsed.en || null;
       game = parsed.game;
     }
-    const ext = path.extname(m.originalFileName || m.storagePath || "") || "";
-    return {
-      content_id,
+
+    const assets: DumpAsset[] = rows.map((m) => ({
+      role: m.role,
+      index: m.index,
       wvr_id: m.id,
-      douyin_url: douyinUrlFor(m.contentId?.trim() || null),
-      title: m.title || m.originalFileName,
-      description: m.description,
-      tags: m.tags.map((t) => t.tag.name),
       media_type: (m.mediaType === "VIDEO" ? "VIDEO" : "IMAGE") as "IMAGE" | "VIDEO",
-      duration_ms: m.durationSeconds != null ? Math.round(m.durationSeconds * 1000) : null,
-      height: m.height,
+      title: m.title || m.originalFileName,
       width: m.width,
-      agent: m.agent?.name ?? null,
-      created_at: m.createdAt.toISOString(),
-      character_en,
-      game,
-      review_note: m.reviewNote,
+      height: m.height,
+      duration_ms: m.durationSeconds != null ? Math.round(m.durationSeconds * 1000) : null,
       storagePath: m.storagePath,
       thumbnailPath: m.thumbnailPath,
-      ext,
-    };
-  });
+      ext: path.extname(m.originalFileName || m.storagePath || "") || "",
+    }));
+
+    items.push({
+      content_id,
+      wvr_id: primary.id,
+      douyin_url: douyinUrlFor(primary.contentId?.trim() || null),
+      title: primary.title || primary.originalFileName,
+      description: primary.description,
+      tags: primary.tags.map((t) => t.tag.name),
+      media_type: (primary.mediaType === "VIDEO" ? "VIDEO" : "IMAGE") as "IMAGE" | "VIDEO",
+      duration_ms:
+        primary.durationSeconds != null ? Math.round(primary.durationSeconds * 1000) : null,
+      height: primary.height,
+      width: primary.width,
+      agent: primary.agent?.name ?? null,
+      created_at: primary.createdAt.toISOString(),
+      character_en,
+      game,
+      review_note: primary.reviewNote,
+      storagePath: primary.storagePath,
+      thumbnailPath: primary.thumbnailPath,
+      ext: path.extname(primary.originalFileName || primary.storagePath || "") || "",
+      assets,
+    });
+  }
+
+  return items;
 }
 
 // --- pembangun artefak --------------------------------------------------------
@@ -250,6 +310,17 @@ function buildArchAll(items: DumpItem[]): object {
     character_name: it.character_en,
     game_name: it.game,
     review_note: it.review_note,
+    asset_count: it.assets.length,
+    // Bundle multi-aset: pipeline memakai entry utama; aset lain untuk audit/handoff.
+    assets: it.assets.map((a) => ({
+      role: a.role,
+      index: a.index,
+      wvr_id: a.wvr_id,
+      media_type: a.media_type,
+      width: a.width,
+      height: a.height,
+      duration_ms: a.duration_ms,
+    })),
   }));
   return { items: archItems };
 }
@@ -295,25 +366,32 @@ export async function createDump(opts: DumpOptions = {}): Promise<DumpInfo> {
   // 3. cid_overrides.json
   await fs.writeFile(path.join(dumpDir, "cid_overrides.json"), JSON.stringify(buildCidOverrides(items, createdAt), null, 2), "utf8");
 
-  // 4. Salin file fisik (opsional)
+  // 4. Salin file fisik (opsional) — semua aset bundle.
   let fileCount = 0;
   if (includeFiles) {
     const mediaDir = path.join(dumpDir, "media");
     await fs.mkdir(mediaDir, { recursive: true });
     for (const it of items) {
-      const dst = path.join(mediaDir, `${safeName(it.content_id)}${it.ext}`);
-      try {
-        const src = resolveStoredPath(it.storagePath);
-        await fs.copyFile(src, dst);
-        fileCount++;
-      } catch {
-        // file sumber hilang — lewati, tetap dicatat di manifest
+      for (const asset of it.assets) {
+        const suffix =
+          asset.role === "video" && asset.index === 0
+            ? ""
+            : `__${safeName(asset.role)}${asset.index ? `_${asset.index}` : ""}`;
+        const dst = path.join(mediaDir, `${safeName(it.content_id)}${suffix}${asset.ext}`);
+        try {
+          const src = resolveStoredPath(asset.storagePath);
+          await fs.copyFile(src, dst);
+          fileCount++;
+        } catch {
+          // file sumber hilang — lewati, tetap dicatat di manifest
+        }
       }
     }
   }
 
   // 5. Manifest
   const characterCount = items.filter((it) => it.character_en).length;
+  const assetCount = items.reduce((sum, it) => sum + it.assets.length, 0);
   const manifest = {
     type: "wvr-dump.json",
     id,
@@ -322,6 +400,7 @@ export async function createDump(opts: DumpOptions = {}): Promise<DumpInfo> {
     includeFiles,
     counts: {
       total: items.length,
+      assets: assetCount,
       characters_reviewed: characterCount,
       videos: items.filter((it) => it.media_type === "VIDEO").length,
       images: items.filter((it) => it.media_type === "IMAGE").length,
