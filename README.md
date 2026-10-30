@@ -170,6 +170,28 @@ Media yang **ditolak** tidak dihapus. File fisiknya dipindahkan ke `rejected/<ka
 * **Agent**: `get_review_result` / `GET /api/v1/media/by-code/:code` mengembalikan `reject_category`, `reject_reason`, `rejected_at`.
 * Media `REJECTED` **tidak ikut** dump (dump hanya mengambil `APPROVED`).
 
+---
+
+## ☁️ Google Drive Opsional (rclone)
+
+Storage utama tetap **lokal**. Jika ingin salinan ke Google Drive, gunakan rclone — bukan storage primary:
+
+```bash
+# 1) Konfigurasi remote sekali (interaktif)
+rclone config          # buat remote bernama "gdrive"
+
+# 2) Set di .env
+RCLONE_REMOTE="gdrive:featherduster"
+RCLONE_SYNC_TARGETS="backups,dumps,rejected"
+
+# 3) Restart server, lalu buka /admin/backups → "Sinkronisasi Google Drive"
+```
+
+* Perintah yang dipakai: `rclone copy` (additive) — **tidak pernah menghapus** file di remote.
+* Tombol **Simulasi (dry-run)** dan **Sync sekarang** tersedia di `/admin/backups`.
+* API: `GET/POST /api/admin/backups/sync` (body `{ targets?, dryRun? }`).
+* Bila `RCLONE_REMOTE` kosong, fitur otomatis nonaktif dan UI menampilkan cara mengaktifkannya.
+
 #### Contoh Review dari AI:
 ```bash
 curl -X POST http://localhost:3000/api/v1/media/<ID_MEDIA>/reviews \
@@ -226,6 +248,9 @@ web-vid-review/
 ├── prisma/                        # Skema database SQLite & berkas migrasi
 ├── scripts/                       # Utilitas CLI (backup, mcp-bridge, create-agent, tunnel)
 ├── uploads/                       # Penyimpanan lokal berkas media asli & thumbnail
+├── rejected/                      # Karantina media ditolak (zero-delete, per kategori)
+├── dumps/                         # Snapshot handoff ke nextgen_cosplay_pipeline
+├── backups/                       # Arsip backup metadata/full
 └── docker-compose.yml             # Konfigurasi container produksi
 ```
 

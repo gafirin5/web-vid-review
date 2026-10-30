@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  CloudUpload,
   DatabaseBackup,
   Download,
   HardDriveDownload,
@@ -15,6 +16,23 @@ interface BackupRow {
   mode: "metadata" | "full";
   sizeBytes: number;
   createdAt: string;
+}
+
+interface SyncStatus {
+  enabled: boolean;
+  remote: string | null;
+  targets: string[];
+  available: boolean;
+  version: string | null;
+  allTargets: string[];
+  localDirs: Record<string, string>;
+}
+
+interface SyncResult {
+  target: string;
+  ok: boolean;
+  output: string;
+  durationMs: number;
 }
 
 function formatBytes(n: number): string {
@@ -35,6 +53,11 @@ export default function AdminBackupsPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [notes, setNotes] = useState("");
+  const [sync, setSync] = useState<SyncStatus | null>(null);
+  const [syncTargets, setSyncTargets] = useState<string[]>([]);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncResults, setSyncResults] = useState<SyncResult[] | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +83,47 @@ export default function AdminBackupsPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin/backups/sync")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: SyncStatus | null) => {
+        if (cancelled || !data) return;
+        setSync(data);
+        setSyncTargets(data.targets ?? []);
+      })
+      .catch(() => {
+        /* status rclone opsional — abaikan */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function runSync(dryRun: boolean) {
+    setSyncBusy(true);
+    setSyncError(null);
+    setSyncResults(null);
+    const res = await fetch("/api/admin/backups/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ targets: syncTargets, dryRun }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSyncBusy(false);
+    if (!res.ok) {
+      setSyncError(data.error ?? "Sync gagal");
+      return;
+    }
+    setSyncResults(data.results ?? []);
+  }
+
+  function toggleTarget(target: string) {
+    setSyncTargets((prev) =>
+      prev.includes(target) ? prev.filter((t) => t !== target) : [...prev, target]
+    );
+  }
 
   async function createBackup(mode: "metadata" | "full") {
     setBusy(true);
@@ -158,6 +222,105 @@ export default function AdminBackupsPage() {
           {message.text}
         </p>
       )}
+
+      {/* Remote sync (rclone, opsional) */}
+      <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          <CloudUpload className="size-4 text-sky-400" /> Sinkronisasi Google Drive (opsional)
+        </h2>
+        <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+          Storage utama tetap <span className="text-zinc-300">lokal</span>. rclone hanya menyalin
+          folder ke remote (<code className="text-zinc-400">rclone copy</code>) — file di remote
+          tidak pernah dihapus otomatis.
+        </p>
+
+        {!sync && <p className="mt-3 text-xs text-zinc-600">Memeriksa rclone…</p>}
+
+        {sync && !sync.available && (
+          <p className="mt-3 rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-xs text-red-300">
+            rclone tidak ditemukan di PATH server. Install rclone lalu restart server.
+          </p>
+        )}
+
+        {sync && sync.available && !sync.enabled && (
+          <div className="mt-3 rounded-lg border border-amber-800/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-300">
+            <p className="font-medium">Belum dikonfigurasi (fitur opsional).</p>
+            <p className="mt-1 text-amber-200/80">
+              Tambahkan ke <code>.env</code>:{" "}
+              <code className="text-amber-200">RCLONE_REMOTE=&quot;gdrive:featherduster&quot;</code>{" "}
+              lalu restart server. Konfigurasi remote:{" "}
+              <code className="text-amber-200">rclone config</code>.
+            </p>
+            <p className="mt-1 text-amber-200/60">{sync.version}</p>
+          </div>
+        )}
+
+        {sync && sync.available && sync.enabled && (
+          <div className="mt-3">
+            <p className="text-xs text-zinc-400">
+              Remote: <code className="text-sky-300">{sync.remote}</code>
+            </p>
+            <div className="mt-2 flex flex-wrap gap-3">
+              {sync.allTargets.map((t) => (
+                <label key={t} className="flex items-center gap-1.5 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={syncTargets.includes(t)}
+                    onChange={() => toggleTarget(t)}
+                    className="size-4 rounded border-zinc-600 bg-zinc-900 accent-sky-600"
+                  />
+                  {t}
+                </label>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => runSync(true)}
+                disabled={syncBusy || syncTargets.length === 0}
+                className="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-600 disabled:opacity-50"
+              >
+                Simulasi (dry-run)
+              </button>
+              <button
+                onClick={() => runSync(false)}
+                disabled={syncBusy || syncTargets.length === 0}
+                className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+              >
+                <CloudUpload className="size-4" /> {syncBusy ? "Menyinkronkan…" : "Sync sekarang"}
+              </button>
+            </div>
+
+            {syncError && (
+              <p className="mt-3 rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-xs text-red-300">
+                {syncError}
+              </p>
+            )}
+
+            {syncResults && (
+              <ul className="mt-3 space-y-1.5">
+                {syncResults.map((r) => (
+                  <li
+                    key={r.target}
+                    className={`rounded-lg border px-3 py-2 text-xs ${
+                      r.ok
+                        ? "border-emerald-800/60 bg-emerald-950/20 text-emerald-300"
+                        : "border-red-800/60 bg-red-950/20 text-red-300"
+                    }`}
+                  >
+                    <span className="font-medium">{r.target}</span> —{" "}
+                    {r.ok ? "berhasil" : "gagal"} ({r.durationMs} ms)
+                    {r.output && (
+                      <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap text-[11px] opacity-70">
+                        {r.output}
+                      </pre>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* List */}
       <div className="mt-4 overflow-x-auto rounded-xl border border-zinc-800">

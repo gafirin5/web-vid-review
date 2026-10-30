@@ -233,3 +233,6 @@ Setelah media terkurasi berstatus `APPROVED`, data disiapkan untuk handoff ke `n
 3. **Format Karakter yang Diharapkan**:
    - Reviewer biasanya mengisi `Nama Karakter (Nama Game)` atau `Nama Karakter - Nama Game`.
    - Generator dump otomatis mengekstrak format ini menjadi objek terstruktur `{ en, game }`.
+4. **Sinkronisasi Remote (opsional)**:
+   - Owner dapat menyalin `backups/`, `dumps/`, dan `rejected/` ke Google Drive via rclone.
+   - Agent tidak perlu memanggilnya; ini aksi admin di `/admin/backups`.
