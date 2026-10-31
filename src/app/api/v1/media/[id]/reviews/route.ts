@@ -58,12 +58,14 @@ export async function POST(
   );
 
   let agentName: string | null = null;
+  let agentId: string | null = null;
   let anonymousAgent = false;
 
   if (hasAgentHint) {
     const identity = await resolveAgent(request);
     if (identity.error) return jsonError(identity.error, 401);
     agentName = identity.agent?.name ?? null;
+    agentId = identity.agent?.id ?? null;
     anonymousAgent = identity.anonymous && Boolean(identity.agent);
 
     if (anonymousAgent) {
@@ -90,6 +92,7 @@ export async function POST(
       mediaId: id,
       authorType,
       authorName,
+      agentId,
       rating,
       comment: body.comment?.slice(0, 4000) ?? null,
       timestampSeconds:

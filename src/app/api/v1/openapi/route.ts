@@ -9,6 +9,22 @@ const mediaSchema = {
   properties: {
     id: { type: "string", format: "uuid" },
     contentId: { type: "string", nullable: true, description: "Kode identifikasi (CID) dari pipeline/DTK (kunci dedup & lookup)" },
+    role: { type: "string", enum: ["video", "cover", "frame", "pin", "thumb"], description: "Peran aset dalam bundle CID" },
+    index: { type: "integer", minimum: 0, description: "Urutan frame/pin (0 untuk video/cover)" },
+    characterCandidates: { type: "string", nullable: true, description: "JSON array saran karakter" },
+    game: { type: "string", nullable: true },
+    creatorName: { type: "string", nullable: true },
+    creatorSecUid: { type: "string", nullable: true },
+    sourceUrl: { type: "string", nullable: true },
+    sourcePlatform: { type: "string", nullable: true, enum: ["douyin", "tiktok"] },
+    playlistId: { type: "string", nullable: true },
+    pinterestBoard: { type: "string", nullable: true },
+    visionVerdict: { type: "string", nullable: true },
+    pipelineStage: { type: "string", enum: ["intake", "gated", "scheduled", "published", "archived"] },
+    externalRefs: { type: "string", nullable: true, description: "JSON referensi publish (YouTube/Zernio/Pinterest/TikTok)" },
+    publishedAt: { type: "string", format: "date-time", nullable: true },
+    purgeAt: { type: "string", format: "date-time", nullable: true, description: "Jadwal retensi file" },
+    phash: { type: "string", nullable: true },
     title: { type: "string" },
     description: { type: "string", nullable: true },
     mediaType: { type: "string", enum: ["IMAGE", "VIDEO"] },
@@ -17,6 +33,19 @@ const mediaSchema = {
     characterName: { type: "string", nullable: true, description: "Nama karakter game/anime yang telah divalidasi manusia" },
     reviewNote: { type: "string", nullable: true, description: "Catatan kurator/reviewer manusia" },
     reviewedAt: { type: "string", format: "date-time", nullable: true },
+    rejectCategory: {
+      type: "string",
+      nullable: true,
+      enum: ["DIRTY_TEXT", "SKIT", "SPONSOR", "NON_COSPLAY", "LOWRES", "DUPLICATE"],
+      description: "Kategori karantina bila media ditolak (zero-delete); paritas enum pipeline",
+    },
+    rejectReason: { type: "string", nullable: true, description: "Alasan penolakan dari kurator" },
+    rejectedAt: { type: "string", format: "date-time", nullable: true },
+    quarantinedPath: {
+      type: "string",
+      nullable: true,
+      description: "Path relatif di folder rejected/ (hanya untuk admin)",
+    },
     storagePath: { type: "string" },
     thumbnailPath: { type: "string", nullable: true },
     mimeType: { type: "string" },
@@ -70,9 +99,9 @@ export async function GET() {
       title: "web-vid-review API",
       version: SERVER_VERSION,
       description:
-        "API galeri media AI. Upload foto/video sebagai AI agent (dengan API key), " +
-        "jelajahi koleksi, dan kirim review. Dokumentasi interaktif: /api/v1/docs. " +
-        "Server MCP juga tersedia di /api/mcp.",
+        "API galeri media AI dengan identitas CID-first. Upload foto/video sebagai AI agent (dengan API key), " +
+        "kirim satu bundle (video + cover + frames) per CID secara idempoten, kelola retensi per role, " +
+        "dan handoff ke pipeline. Dokumentasi interaktif: /api/v1/docs. Server MCP juga tersedia di /api/mcp.",
     },
     servers: [{ url: "/", description: "Server saat ini (origin yang sama dengan dokumen ini)" }],
     components: {
@@ -120,8 +149,13 @@ export async function GET() {
       },
       "/api/v1/media/by-code/{code}": {
         get: {
-          summary: "Cari media via kode identifikasi (CID) atau UUID",
-          description: "Dipakai oleh AI agent untuk polling hasil review karakter manusia.",
+          summary: "Cari media via CID (content_id) atau UUID",
+          description:
+            "Tanpa query: 1 aset → objek Media; >1 aset → dikelompokkan per role " +
+            "({ content_id, count, roles: { video, cover, frames, pins, thumbs }, items }). " +
+            "Gunakan ?role=frame untuk satu role dan ?role=frame&index=2 untuk presisi. " +
+            "Dipakai AI agent untuk polling hasil review karakter manusia. Bila ditolak, respons " +
+            "memuat rejectCategory, rejectReason, dan rejectedAt (media dipindah ke karantina).",
           parameters: [
             {
               name: "code",
@@ -130,14 +164,177 @@ export async function GET() {
               schema: { type: "string" },
               description: "contentId (CID) atau UUID media",
             },
+            {
+              name: "role",
+              in: "query",
+              schema: { type: "string", enum: ["video", "cover", "frame", "pin", "thumb"] },
+              description: "Filter per peran aset",
+            },
+            {
+              name: "index",
+              in: "query",
+              schema: { type: "integer", minimum: 0 },
+              description: "Filter urutan (butuh role)",
+            },
           ],
           responses: {
             200: {
-              description: "Detail media dan riwayat review",
+              description: "Detail media, daftar per role, atau riwayat review",
               content: { "application/json": { schema: { $ref: "#/components/schemas/Media" } } },
             },
             404: { description: "Media tidak ditemukan" },
+            422: { description: "role tidak valid" },
           },
+        },
+      },
+      "/api/v1/bundles": {
+        post: {
+          summary: "Upload satu bundle CID (video + cover + frames)",
+          description:
+            "multipart/form-data: video (File), cover (File, opsional), frames (File[], opsional, index 1..N), " +
+            "manifest (JSON string: { content_id, title?, character?, game?, creator?, tags?, needs_character_review? }). " +
+            "Idempoten per (content_id, role, index): kirim ulang → 200 { duplicate: true } tanpa baris baru.",
+          security: [{ AgentApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "multipart/form-data": {
+                schema: {
+                  type: "object",
+                  required: ["manifest"],
+                  properties: {
+                    manifest: { type: "string", description: "JSON manifest bundle" },
+                    video: { type: "string", format: "binary" },
+                    cover: { type: "string", format: "binary" },
+                    frames: { type: "array", items: { type: "string", format: "binary" } },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: { description: "Bundle dibuat (created > 0)" },
+            200: { description: "Semua aset sudah ada (duplicate: true)" },
+            401: { description: "API key tidak valid" },
+            422: { description: "Manifest/role tidak valid" },
+          },
+        },
+      },
+      "/api/v1/bundles/{cid}": {
+        get: {
+          summary: "Ambil bundle per CID",
+          parameters: [{ name: "cid", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            200: { description: "Semua aset CID dikelompokkan per role" },
+            404: { description: "CID tidak ditemukan" },
+          },
+        },
+      },
+      "/api/v1/bundles/{cid}/publish-ref": {
+        post: {
+          summary: "Simpan referensi publish (externalRefs)",
+          description:
+            "Body: { youtube_video_id?, zernio_post_id?, pinterest_pin_id?, tiktok_post_id?, external_refs? }. " +
+            "Menyimpan externalRefs + publishedAt + pipelineStage=published.",
+          security: [{ AgentApiKey: [] }],
+          parameters: [{ name: "cid", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            200: { description: "Referensi tersimpan" },
+            422: { description: "Tidak ada referensi / CID tidak ditemukan" },
+          },
+        },
+      },
+      "/api/v1/characters": {
+        get: {
+          summary: "Autocomplete karakter & game",
+          description:
+            "Sumber data adalah database lokal (diimpor dari DB pipeline via POST /api/v1/characters/import " +
+            "atau `npm run characters:import`).",
+          parameters: [
+            { name: "q", in: "query", schema: { type: "string" }, description: "Pencarian nama karakter" },
+            { name: "game", in: "query", schema: { type: "string" } },
+            { name: "limit", in: "query", schema: { type: "integer", default: 50, maximum: 200 } },
+          ],
+          responses: { 200: { description: "{ items, games, count }" } },
+        },
+      },
+      "/api/v1/characters/import": {
+        post: {
+          summary: "Impor/merge karakter dari pipeline (admin)",
+          security: [{ AgentApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    characters: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        required: ["name"],
+                        properties: {
+                          name: { type: "string" },
+                          game: { type: "string" },
+                          aliases: { type: "array", items: { type: "string" } },
+                        },
+                      },
+                    },
+                    games: { type: "array", items: { type: "string" } },
+                  },
+                },
+              },
+            },
+          },
+          responses: { 201: { description: "{ created, updated, games }" } },
+        },
+      },
+      "/api/v1/storage/report": {
+        get: {
+          summary: "Laporan penyimpanan",
+          description:
+            "Total, per role, per status, byte yang bisa di-purge, proyeksi 30 hari, dan kapasitas disk.",
+          responses: { 200: { description: "OK" } },
+        },
+      },
+      "/api/v1/retention/policies": {
+        get: {
+          summary: "Kebijakan retensi per role",
+          security: [{ AgentApiKey: [] }],
+          responses: { 200: { description: "{ roles, policies }" } },
+        },
+        post: {
+          summary: "Ubah TTL retensi (admin)",
+          security: [{ AgentApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["role", "retentionDays"],
+                  properties: {
+                    role: { type: "string", enum: ["video", "cover", "frame", "pin", "thumb", "rejected"] },
+                    retentionDays: { type: "integer", minimum: 0, maximum: 3650 },
+                  },
+                },
+              },
+            },
+          },
+          responses: { 200: { description: "Kebijakan disimpan" } },
+        },
+      },
+      "/api/v1/retention/run": {
+        post: {
+          summary: "Jalankan retensi (default dry-run)",
+          description:
+            "?dry_run=false untuk purge nyata: file dihapus, metadata tetap ada sebagai ARCHIVED (zero-delete).",
+          security: [{ AgentApiKey: [] }],
+          parameters: [
+            { name: "dry_run", in: "query", schema: { type: "boolean", default: true } },
+          ],
+          responses: { 200: { description: "{ candidates, freedBytes, purged, refreshed }" } },
         },
       },
       "/api/v1/media/upload": {
@@ -158,6 +355,8 @@ export async function GET() {
                     file: { type: "string", format: "binary" },
                     title: { type: "string" },
                     content_id: { type: "string", description: "Kode identifikasi (CID) dari pipeline/DTK (dedup)" },
+                    role: { type: "string", enum: ["video", "cover", "frame", "pin", "thumb"], description: "Peran aset (default video)" },
+                    index: { type: "integer", minimum: 0, description: "Urutan frame/pin (default 0)" },
                     needs_character_review: { type: "string", enum: ["true", "false"], description: "Kirim 'true' jika ragu identitas karakter (status jadi PENDING_REVIEW)" },
                     description: { type: "string" },
                     tags: { type: "string", description: "Tag dipisah koma: '3d,render'" },
@@ -172,6 +371,14 @@ export async function GET() {
                   properties: {
                     title: { type: "string" },
                     content_id: { type: "string", description: "Kode identifikasi (CID) dari pipeline/DTK (dedup)" },
+                    role: { type: "string", enum: ["video", "cover", "frame", "pin", "thumb"], description: "Peran aset (default video)" },
+                    index: { type: "integer", minimum: 0, description: "Urutan frame/pin (default 0)" },
+                    character: { type: "string", description: "Nama karakter (bila sudah yakin)" },
+                    game: { type: "string" },
+                    character_candidates: { type: "array", items: { type: "string" } },
+                    creator_name: { type: "string" },
+                    creator_sec_uid: { type: "string" },
+                    source_platform: { type: "string", enum: ["douyin", "tiktok"] },
                     needs_character_review: { type: "boolean", description: "Kirim true jika ragu identitas karakter (status jadi PENDING_REVIEW)" },
                     source_url: { type: "string", format: "uri" },
                     source_path: { type: "string", example: "C:/videos/render.mp4" },

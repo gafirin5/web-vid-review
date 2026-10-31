@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 import { db } from "@/db/client";
 import { requireAdminApi } from "@/lib/admin-auth";
 import { jsonError, jsonOk } from "@/lib/http";
-import { UPLOADS_ROOT } from "@/lib/paths";
+import { UPLOADS_ROOT, REJECTED_ROOT } from "@/lib/paths";
 import { publishEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
@@ -78,6 +78,18 @@ export async function DELETE(
   const media = await db.prisma.media.findUnique({ where: { id } });
   if (!media) return jsonError("Media tidak ditemukan", 404);
 
+  // Media terkarantina wajib konfirmasi ketik kode (zero-delete by default).
+  if (media.quarantinedPath) {
+    const body = await request.json().catch(() => ({}));
+    const expected = media.contentId?.trim() || media.id;
+    if (typeof body?.confirm !== "string" || body.confirm.trim() !== expected) {
+      return jsonError(
+        `Media berada di karantina. Ketik "${expected}" pada field confirm untuk menghapus permanen.`,
+        422
+      );
+    }
+  }
+
   // Hapus record (review & mediaTag ikut ter-cascade).
   await db.prisma.media.delete({ where: { id } });
 
@@ -92,6 +104,18 @@ export async function DELETE(
       removedFiles.push(rel);
     } catch {
       // file sudah tidak ada — abaikan
+    }
+  }
+
+  // File karantina (bila ada) ikut dibersihkan.
+  if (media.quarantinedPath) {
+    try {
+      await fs.rm(path.join(REJECTED_ROOT, path.dirname(media.quarantinedPath)), {
+        recursive: true,
+        force: true,
+      });
+    } catch {
+      // abaikan
     }
   }
 

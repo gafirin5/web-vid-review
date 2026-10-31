@@ -1,5 +1,6 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { buildMcpServer } from "@/mcp/server";
+import { resolveAgent } from "@/lib/agent-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,8 +13,20 @@ export const dynamic = "force-dynamic";
  * Each POST request is served by a fresh server+transport pair, so any number
  * of AI agents can connect concurrently without session state on the server.
  * Responses are plain JSON (no SSE), which every MCP client supports.
+ *
+ * Autentikasi mengikuti AUTH_MODE (default `required`): kirim header
+ * `Authorization: Bearer avr_...`. Stdio bridge (`npm run mcp:bridge`) berjalan
+ * lokal dan mengakses DB langsung, jadi tidak melewati endpoint ini.
  */
 export async function POST(request: Request) {
+  const identity = await resolveAgent(request);
+  if (identity.error) {
+    return Response.json(
+      { jsonrpc: "2.0", error: { code: -32001, message: identity.error }, id: null },
+      { status: 401 }
+    );
+  }
+
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless
     enableJsonResponse: true,

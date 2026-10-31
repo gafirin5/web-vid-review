@@ -1,4 +1,5 @@
-import { statfs } from "node:fs/promises";
+import { readFile, statfs } from "node:fs/promises";
+import { basename } from "node:path";
 import os from "node:os";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -10,11 +11,13 @@ import { createBackup, listBackups } from "@/services/backup";
 import { searchMedia as relevanceSearch } from "@/services/search";
 import { compareStats as compareMediaStats } from "@/services/votes";
 import { deleteMediaWithFiles, setMediaTags } from "@/services/media-ops";
+import { createBundle, getBundle, type BundleFile } from "@/services/bundles";
+import { storageReport } from "@/services/retention";
 import { formatBytes, formatDuration, jsonReplacer } from "@/lib/http";
 import { publishEvent } from "@/lib/events";
 
 export const SERVER_NAME = "web-vid-review";
-export const SERVER_VERSION = "1.1.0";
+export const SERVER_VERSION = "1.2.0";
 
 function mediaUrl(id: string): string {
   const base = process.env.PUBLIC_BASE_URL ?? "http://localhost:3000";
@@ -34,12 +37,12 @@ export function buildMcpServer(): McpServer {
     {
       instructions:
         "Staging & curation hub for AI agents and nextgen_cosplay_pipeline transit. " +
-        "Upload generated videos/photos with content_id (CID) for automatic deduplication. " +
+        "Upload generated videos/photos with content_id (CID) for automatic CID-first deduplication " +
+        "(content_id + role + index). Use upload_bundle for one CID with video + cover + frames. " +
         "Default upload status is APPROVED. If unsure of character identification, set " +
         "needs_character_review=true so media enters PENDING_REVIEW; poll get_review_result " +
         "using the content_id or UUID to get the human-verified character name once resolved. " +
-        "Use upload_media (URL, local file path, or base64) and check disk space with " +
-        "get_system_metrics before large batches.",
+        "Use check_cid before uploading and storage_report before large batches.",
     }
   );
 
@@ -69,6 +72,18 @@ export function buildMcpServer(): McpServer {
           .string()
           .optional()
           .describe("Content ID (CID) from the pipeline/DTK — dedup key and lookup code"),
+        role: z
+          .enum(["video", "cover", "frame", "pin", "thumb"])
+          .optional()
+          .describe("Asset role within the CID (default video)"),
+        index: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Frame/pin order (default 0)"),
+        character: z.string().optional().describe("Character name if already certain"),
+        game: z.string().optional().describe("Game/anime name"),
         needs_character_review: z
           .boolean()
           .optional()
@@ -95,6 +110,10 @@ export function buildMcpServer(): McpServer {
           negativePrompt: args.negative_prompt,
           transcript: args.transcript,
           contentId: args.content_id,
+          role: args.role,
+          index: args.index,
+          characterName: args.character,
+          game: args.game,
           needsCharacterReview: args.needs_character_review === true,
           agentId: identity.id,
         });
@@ -122,7 +141,7 @@ export function buildMcpServer(): McpServer {
                 content_id: media?.contentId ?? null,
                 duplicate: Boolean(result.duplicateOf),
                 note: result.duplicateOf
-                  ? "Identical content (matching content_id or SHA-256 hash) already exists in the gallery."
+                  ? "Asset with the same (content_id, role, index) already exists (or SHA-256 when no CID)."
                   : "Upload successful.",
                 url: mediaUrl(result.mediaId),
                 media_type: media?.mediaType,
@@ -276,17 +295,22 @@ export function buildMcpServer(): McpServer {
       title: "Get review result",
       description:
         "Look up the human review result for a media by its content_id (CID) or ID. Returns status, " +
-        "the identified game character name, and the reviewer's note. Use this after the owner has " +
-        "reviewed a media that was flagged with needs_character_review.",
+        "the identified game character name, the reviewer's note, and — when rejected — the " +
+        "reject category (DIRTY_TEXT/SKIT/SPONSOR/NON_COSPLAY/LOWRES/DUPLICATE) plus reason. " +
+        "If the CID has multiple assets, the video asset is returned by default. Use get_bundle " +
+        "to inspect all roles. Use this after the owner has reviewed a media that was flagged " +
+        "with needs_character_review.",
       inputSchema: {
         code: z.string().describe("Content ID (CID) or media ID (UUID)"),
       },
     },
     async (args) => {
       const key = args.code.trim();
-      const media = await db.prisma.media.findFirst({
+      const rows = await db.prisma.media.findMany({
         where: { OR: [{ contentId: key }, { id: key }] },
+        orderBy: [{ index: "asc" }],
       });
+      const media = rows.find((m) => m.role === "video") ?? rows[0];
       if (!media) {
         return {
           isError: true,
@@ -306,6 +330,9 @@ export function buildMcpServer(): McpServer {
                 character_name: media.characterName,
                 review_note: media.reviewNote,
                 reviewed_at: media.reviewedAt,
+                reject_category: media.rejectCategory,
+                reject_reason: media.rejectReason,
+                rejected_at: media.rejectedAt,
                 pending: media.status === "PENDING_REVIEW",
               },
               null,
@@ -733,6 +760,225 @@ export function buildMcpServer(): McpServer {
         results.push({ index, ok: true, id: review.id });
       }
       return { content: [{ type: "text", text: JSON.stringify({ results }, null, 2) }] };
+    }
+  );
+
+  // ===== Bundles & storage (CID-first) =====
+  async function loadAssetBytes(
+    sourceType: "url" | "file_path" | "base64",
+    source: string,
+    fileName?: string
+  ): Promise<{ buffer: Buffer; fileName: string }> {
+    if (sourceType === "base64") {
+      return { buffer: Buffer.from(source, "base64"), fileName: fileName ?? "asset.bin" };
+    }
+    if (sourceType === "file_path") {
+      return { buffer: await readFile(source), fileName: fileName ?? basename(source) };
+    }
+    const parsed = new URL(source);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      throw new Error("Hanya URL http/https yang didukung");
+    }
+    const res = await fetch(source);
+    if (!res.ok) throw new Error(`Unduh gagal: HTTP ${res.status}`);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return { buffer, fileName: fileName ?? (basename(decodeURIComponent(parsed.pathname)) || "download") };
+  }
+
+  server.registerTool(
+    "upload_bundle",
+    {
+      title: "Upload bundle (video + cover + frames)",
+      description:
+        "Upload one CID bundle in a single call: video, cover, and frames/pins as separate roles. " +
+        "Idempotent per (content_id, role, index) — resending returns duplicate:true without new rows. " +
+        "Use this instead of multiple upload_media calls when assets belong to the same content.",
+      inputSchema: {
+        manifest: z
+          .object({
+            content_id: z.string().describe("CID from pipeline/DTK (dedup key)"),
+            title: z.string().optional(),
+            description: z.string().optional(),
+            tags: z.array(z.string()).optional(),
+            character: z.string().optional(),
+            game: z.string().optional(),
+            character_candidates: z.array(z.string()).optional(),
+            creator_name: z.string().optional(),
+            creator_sec_uid: z.string().optional(),
+            source_url: z.string().optional(),
+            source_platform: z.string().optional(),
+            vision_verdict: z.string().optional(),
+            playlist_id: z.string().optional(),
+            pinterest_board: z.string().optional(),
+            needs_character_review: z.boolean().optional(),
+          })
+          .describe("Bundle metadata"),
+        files: z
+          .array(
+            z.object({
+              role: z.enum(["video", "cover", "frame", "pin", "thumb"]),
+              index: z.number().int().min(0).optional().default(0),
+              source_type: z.enum(["url", "file_path", "base64"]).optional().default("url"),
+              source: z.string().describe("URL, absolute path, or base64 payload"),
+              file_name: z.string().optional(),
+            })
+          )
+          .min(1),
+        agent_name: z.string().optional().describe("Agent identity (auto-created if new)"),
+      },
+    },
+    async (args) => {
+      try {
+        const identity = await findOrCreateAgentByName(args.agent_name ?? "MCP Agent");
+        const files: BundleFile[] = [];
+        for (const file of args.files) {
+          const loaded = await loadAssetBytes(
+            file.source_type ?? "url",
+            file.source,
+            file.file_name
+          );
+          files.push({
+            role: file.role,
+            index: file.index ?? 0,
+            buffer: loaded.buffer,
+            fileName: loaded.fileName,
+          });
+        }
+        const m = args.manifest;
+        const result = await createBundle(
+          {
+            contentId: m.content_id,
+            title: m.title,
+            description: m.description,
+            tags: m.tags,
+            character: m.character ?? null,
+            game: m.game ?? null,
+            characterCandidates: m.character_candidates,
+            creator: { name: m.creator_name, secUid: m.creator_sec_uid },
+            sourceUrl: m.source_url,
+            sourcePlatform: m.source_platform,
+            visionVerdict: m.vision_verdict,
+            playlistId: m.playlist_id,
+            pinterestBoard: m.pinterest_board,
+            needsCharacterReview: m.needs_character_review === true,
+          },
+          files,
+          { agentId: identity.id, actorName: identity.name }
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err: unknown) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Bundle upload failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_bundle",
+    {
+      title: "Get bundle by CID",
+      description: "Fetch every asset for one content_id, grouped by role (video/cover/frames/pins/thumbs).",
+      inputSchema: {
+        content_id: z.string().describe("CID to look up"),
+      },
+    },
+    async (args) => {
+      const bundle = await getBundle(args.content_id);
+      if (!bundle) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `CID tidak ditemukan: ${args.content_id}` }],
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                content_id: bundle.contentId,
+                count: bundle.count,
+                roles: {
+                  video: bundle.roles.video.map((m) => serializeMedia(m)),
+                  cover: bundle.roles.cover.map((m) => serializeMedia(m)),
+                  frames: bundle.roles.frames.map((m) => serializeMedia(m)),
+                  pins: bundle.roles.pins.map((m) => serializeMedia(m)),
+                  thumbs: bundle.roles.thumbs.map((m) => serializeMedia(m)),
+                },
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "check_cid",
+    {
+      title: "Check CID (dedup-first)",
+      description:
+        "Check whether a content_id (CID) already exists and which roles/indexes are stored. " +
+        "Use this BEFORE uploading; SHA-256 check (check_duplicate) is only a fallback for assets without a CID.",
+      inputSchema: {
+        content_id: z.string().describe("CID to check"),
+      },
+    },
+    async (args) => {
+      const items = await db.prisma.media.findMany({
+        where: { contentId: args.content_id },
+        orderBy: [{ role: "asc" }, { index: "asc" }],
+        select: { id: true, role: true, index: true, status: true, title: true },
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                content_id: args.content_id,
+                exists: items.length > 0,
+                count: items.length,
+                roles: items.reduce<Record<string, number>>((acc, m) => {
+                  acc[m.role] = (acc[m.role] ?? 0) + 1;
+                  return acc;
+                }, {}),
+                items,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "storage_report",
+    {
+      title: "Storage & retention report",
+      description:
+        "Disk usage per role/status, purgeable bytes, 30-day projection, and free disk space. " +
+        "Use before large batches to avoid filling the local disk.",
+      inputSchema: {},
+    },
+    async () => {
+      const report = await storageReport();
+      return {
+        content: [{ type: "text", text: JSON.stringify(report, null, 2) }],
+      };
     }
   );
 

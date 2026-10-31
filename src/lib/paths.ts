@@ -11,6 +11,9 @@ export const THUMBNAILS_DIR = path.join(UPLOADS_ROOT, "thumbnails");
 /** Folder penyimpanan dump handoff ke nextgen_cosplay_pipeline. */
 export const DUMPS_ROOT = path.join(PROJECT_ROOT, "dumps");
 
+/** Folder karantina media ditolak (zero-delete) — sejajar `dumps/`. */
+export const REJECTED_ROOT = path.join(PROJECT_ROOT, "rejected");
+
 export async function ensureUploadDirs(): Promise<void> {
   await Promise.all(
     [UPLOADS_ROOT, VIDEOS_DIR, IMAGES_DIR, THUMBNAILS_DIR].map((dir) =>

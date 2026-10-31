@@ -5,6 +5,7 @@ import { db } from "@/db/client";
 import { ensureUploadDirs, monthBucketDir, UPLOADS_ROOT } from "@/lib/paths";
 import { publishEvent } from "@/lib/events";
 import { detectSensitive, generateAutoTags } from "@/services/intelligence";
+import { normalizeIndex, normalizeRole } from "@/lib/media-role";
 import { checkFileSignature } from "@/lib/file-signature";
 import {
   detectMediaType,
@@ -30,15 +31,38 @@ export interface IngestInput {
   agentId?: string | null;
   /** Kode identifikasi (CID) dari pipeline/DTK — kunci dedup utama. */
   contentId?: string | null;
+  /** Peran aset dalam satu CID (video|cover|frame|pin|thumb). */
+  role?: string;
+  /** Urutan frame/pin; 0 untuk video/cover. */
+  index?: number;
+  characterName?: string | null;
+  characterCandidates?: string[];
+  game?: string | null;
+  creatorName?: string | null;
+  creatorSecUid?: string | null;
+  sourceUrlMeta?: string | null;
+  sourcePlatform?: string | null;
+  playlistId?: string | null;
+  pinterestBoard?: string | null;
+  visionVerdict?: string | null;
+  pipelineStage?: string | null;
+  externalRefs?: Record<string, unknown> | null;
+  publishedAt?: Date | null;
+  phash?: string | null;
   /** Bila true, media masuk antrean review karakter (status PENDING_REVIEW). */
   needsCharacterReview?: boolean;
   /** Status default untuk media baru (default APPROVED). */
   defaultStatus?: "APPROVED" | "PENDING_REVIEW";
+  /** Aktor untuk audit (default SYSTEM). */
+  actorName?: string | null;
 }
 
 export interface IngestResult {
   mediaId: string;
   duplicateOf?: string;
+  role: string;
+  index: number;
+  status: string;
 }
 
 function sha256(buf: Buffer): string {
@@ -79,6 +103,8 @@ async function downloadFromUrl(
 export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
   await ensureUploadDirs();
   const contentId = input.contentId?.trim() || null;
+  const role = normalizeRole(input.role);
+  const index = normalizeIndex(input.index);
 
   // 1. Obtain the raw bytes from one of the supported sources.
   let buffer: Buffer;
@@ -130,17 +156,34 @@ export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
     throw new Error(signature.reason ?? "Isi file tidak sesuai dengan formatnya");
   }
 
-  // 3. Dedup — kunci utama contentId (CID), lalu SHA-256 sebagai penjaga kedua.
+  // 3. Dedup — L1: (contentId, role, index) adalah kunci utama.
+  //    L2 (SHA-256) hanya dipakai bila tidak ada CID, agar role berbeda tidak saling menabrak.
   const fileHash = sha256(buffer);
 
   if (contentId) {
-    const byCid = await db.prisma.media.findFirst({ where: { contentId } });
-    if (byCid) return { mediaId: byCid.id, duplicateOf: byCid.id };
-  }
-
-  const existing = await db.prisma.media.findFirst({ where: { fileHash } });
-  if (existing) {
-    return { mediaId: existing.id, duplicateOf: existing.id };
+    const byKey = await db.prisma.media.findUnique({
+      where: { contentId_role_index: { contentId, role, index } },
+    });
+    if (byKey) {
+      return {
+        mediaId: byKey.id,
+        duplicateOf: byKey.id,
+        role: byKey.role,
+        index: byKey.index,
+        status: byKey.status,
+      };
+    }
+  } else {
+    const existing = await db.prisma.media.findFirst({ where: { fileHash } });
+    if (existing) {
+      return {
+        mediaId: existing.id,
+        duplicateOf: existing.id,
+        role: existing.role,
+        index: existing.index,
+        status: existing.status,
+      };
+    }
   }
 
   // 4. Persist the original file.
@@ -213,17 +256,40 @@ export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
     )
   ).slice(0, 24);
 
+  const status =
+    input.needsCharacterReview || sensitive
+      ? "PENDING_REVIEW"
+      : (input.defaultStatus ?? "APPROVED");
+  const pipelineStage =
+    input.pipelineStage ?? (status === "APPROVED" ? "gated" : "intake");
+
   const media = await db.prisma.media.create({
     data: {
       id,
       contentId,
+      role,
+      index,
       title: input.title.slice(0, 300),
       description: input.description?.slice(0, 4000) ?? null,
       mediaType,
-      status: input.needsCharacterReview || sensitive
-        ? "PENDING_REVIEW"
-        : (input.defaultStatus ?? "APPROVED"),
+      status,
       reviewKind: input.needsCharacterReview ? "CHARACTER" : null,
+      characterName: input.characterName?.trim().slice(0, 200) || null,
+      characterCandidates: input.characterCandidates?.length
+        ? JSON.stringify(input.characterCandidates.slice(0, 20))
+        : null,
+      game: input.game?.trim().slice(0, 120) || null,
+      creatorName: input.creatorName?.trim().slice(0, 200) || null,
+      creatorSecUid: input.creatorSecUid?.trim().slice(0, 200) || null,
+      sourceUrl: input.sourceUrlMeta?.slice(0, 1000) || input.sourceUrl || null,
+      sourcePlatform: input.sourcePlatform?.slice(0, 40) || null,
+      playlistId: input.playlistId?.slice(0, 100) || null,
+      pinterestBoard: input.pinterestBoard?.slice(0, 200) || null,
+      visionVerdict: input.visionVerdict?.slice(0, 40) || null,
+      pipelineStage,
+      externalRefs: input.externalRefs ? JSON.stringify(input.externalRefs) : null,
+      publishedAt: input.publishedAt ?? null,
+      phash: input.phash?.slice(0, 100) || null,
       nsfwFlag: sensitive,
       originalFileName: fileName,
       storagePath,
@@ -250,12 +316,24 @@ export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
     },
   });
 
+  await db.prisma.mediaAudit.create({
+    data: {
+      mediaId: media.id,
+      action: "created",
+      toStatus: status,
+      actorType: input.agentId ? "AGENT" : "SYSTEM",
+      actorName: input.actorName ?? null,
+      agentId: input.agentId ?? null,
+      note: contentId ? `CID ${contentId} · ${role}#${index}` : null,
+    },
+  });
+
   publishEvent({
     type: "media.uploaded",
     title: `Media baru: ${media.title.slice(0, 60)}`,
     message: `${media.mediaType === "VIDEO" ? "Video" : "Foto"} baru ditambahkan ke galeri`,
-    payload: { mediaId: media.id, mediaType: media.mediaType },
+    payload: { mediaId: media.id, mediaType: media.mediaType, contentId, role, index },
   });
 
-  return { mediaId: media.id };
+  return { mediaId: media.id, role, index, status };
 }
